@@ -256,7 +256,7 @@ static struct dentry *f2fs_lookup(struct inode *dir, struct dentry *dentry,
 	if (dentry->d_name.len > F2FS_NAME_LEN)
 		return ERR_PTR(-ENAMETOOLONG);
 
-	if (flags & LOOKUP_CASE_INSENSITIVE)
+	if (flags)
 		de = f2fs_find_entry(dir, &dentry->d_name, &page, CASE_INSENSITIVE);
 	else
 		de = f2fs_find_entry(dir, &dentry->d_name, &page, CASE_SENSITIVE);
