@@ -81,6 +81,7 @@ struct dsthash_ent {
 	struct hlist_node node;
 	struct dsthash_dst dst;
 
+	/* modified structure members in the end */
 	spinlock_t lock;
 	unsigned long expires;		/* precalculated expiry time */
 	struct {

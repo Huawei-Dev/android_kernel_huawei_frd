@@ -24,7 +24,7 @@
  * to prelink this.
  */
 #define VDSO_LBASE	0x0
-
+#define vdso_offset_sigtramp	0x04e0
 #ifndef __ASSEMBLY__
 
 #include <generated/vdso-offsets.h>
