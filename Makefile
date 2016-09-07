@@ -47,7 +47,7 @@ endif
 ifndef KBUILD_VERBOSE
   KBUILD_VERBOSE = 0
 endif
-KBUILD_VERBOSE := 1
+KBUILD_VERBOSE := 0
 
 # Call a source code checker (by default, "sparse") as part of the
 # C compilation.
