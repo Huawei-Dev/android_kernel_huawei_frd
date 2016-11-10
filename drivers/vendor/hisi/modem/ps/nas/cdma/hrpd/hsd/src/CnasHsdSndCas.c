@@ -1,0 +1,813 @@
+
+
+/*****************************************************************************
+  1 头文件包含
+*****************************************************************************/
+#include  "PsCommonDef.h"
+#include  "CnasHsdSndCas.h"
+#include  "CnasMntn.h"
+#include  "CnasCcb.h"
+#include  "CnasHsdCtx.h"
+#include  "cas_hrpd_airlinkmgmt_nas_pif.h"
+#include  "CnasHsdSysAcqStrategy.h"
+#include  "hsd_mscc_pif.h"
+#include  "NasMntn.h"
+#include  "cas_hrpd_routeupdate_nas_pif.h"
+#include  "CnasHsdAvoidStrategy.h"
+
+
+#ifdef __cplusplus
+#if __cplusplus
+extern "C" {
+#endif
+#endif
+
+#define THIS_FILE_ID                    PS_FILE_ID_CNAS_HSD_SND_CAS_C
+
+#if (FEATURE_ON == FEATURE_UE_MODE_CDMA)
+
+/*****************************************************************************
+  2 全局变量定义
+*****************************************************************************/
+
+
+/*****************************************************************************
+  3 函数实现
+*****************************************************************************/
+/*lint -save -e958*/
+
+VOS_VOID CNAS_HSD_SndCasStartReq(MSCC_HSD_START_REQ_STRU *pstMsg)
+{
+    CNAS_CAS_HRPD_START_REQ_STRU       *pstStartrReq;
+    VOS_UINT32                          i;
+
+    /* 分配消息 */
+    pstStartrReq = (CNAS_CAS_HRPD_START_REQ_STRU *)PS_ALLOC_MSG(UEPS_PID_HSD,  sizeof(CNAS_CAS_HRPD_START_REQ_STRU) - VOS_MSG_HEAD_LENGTH);
+
+    if (VOS_NULL_PTR == pstStartrReq)
+    {
+        return;
+    }
+
+    /* 填充消息 */
+    pstStartrReq->ulReceiverPid         = UEPS_PID_HALMP;
+    pstStartrReq->enMsgId               = ID_CNAS_CAS_HRPD_START_REQ;
+    pstStartrReq->usOpId                = 0;
+    pstStartrReq->enModemId             = pstMsg->enModemId;
+    pstStartrReq->ucSuppRatNum          = pstMsg->ucSuppRatNum;
+
+    for (i = 0; i < (sizeof(pstStartrReq->aenRatMode)/sizeof(pstStartrReq->aenRatMode[0])); i++)
+    {
+        pstStartrReq->aenRatMode[i] = VOS_RATMODE_BUTT;
+    }
+
+    for (i = 0; i < pstStartrReq->ucSuppRatNum; i++)
+    {
+        pstStartrReq->aenRatMode[i] = pstMsg->aenRatMode[i];
+    }
+
+    CNAS_MNTN_LogMsgInfo((MSG_HEADER_STRU*)pstStartrReq);
+
+    /* 发送消息 */
+    (VOS_VOID)PS_SEND_MSG(UEPS_PID_HSD, pstStartrReq);
+
+    NAS_TRACE_HIGH("Send Msg!");
+
+    return;
+}
+
+
+VOS_VOID CNAS_HSD_SndCasPowerOffReq(VOS_VOID)
+{
+    CNAS_CAS_HRPD_POWER_OFF_REQ_STRU     *pstPowerOffReq;
+
+    /* 分配消息 */
+    pstPowerOffReq = (CNAS_CAS_HRPD_POWER_OFF_REQ_STRU *)PS_ALLOC_MSG(UEPS_PID_HSD, sizeof(CNAS_CAS_HRPD_POWER_OFF_REQ_STRU) - VOS_MSG_HEAD_LENGTH);
+    if (VOS_NULL_PTR == pstPowerOffReq)
+    {
+        return;
+    }
+
+    /* 填充消息 */
+    pstPowerOffReq->ulReceiverPid       = UEPS_PID_HALMP;
+    pstPowerOffReq->enMsgId             = ID_CNAS_CAS_HRPD_POWER_OFF_REQ;
+    pstPowerOffReq->usOpId              = 0;
+
+    CNAS_MNTN_LogMsgInfo((MSG_HEADER_STRU*)pstPowerOffReq);
+
+    /* 发送消息 */
+    (VOS_VOID)PS_SEND_MSG(UEPS_PID_HSD, pstPowerOffReq);
+
+    NAS_TRACE_HIGH("Send Msg!");
+
+    return;
+}
+
+
+VOS_VOID CNAS_HSD_SndCasSysSyncReq(
+    VOS_UINT32                          ulFreqNum,
+    CNAS_PRL_FREQENCY_CHANNEL_STRU     *pstFreqList
+)
+{
+    CNAS_CAS_HRPD_SYSTEM_SYNC_REQ_STRU *pstSysSyncReq;
+
+    /* 分配消息 */
+    pstSysSyncReq = (CNAS_CAS_HRPD_SYSTEM_SYNC_REQ_STRU *)PS_ALLOC_MSG(UEPS_PID_HSD,  sizeof(CNAS_CAS_HRPD_SYSTEM_SYNC_REQ_STRU) - VOS_MSG_HEAD_LENGTH);
+
+    if (VOS_NULL_PTR == pstSysSyncReq)
+    {
+        return;
+    }
+
+    /* 填充消息 */
+    pstSysSyncReq->ulReceiverPid   = UEPS_PID_HALMP;
+    pstSysSyncReq->ulReceiverCpuId = VOS_LOCAL_CPUID;
+    pstSysSyncReq->enMsgId         = ID_CNAS_CAS_HRPD_SYSTEM_SYNC_REQ;
+    pstSysSyncReq->usOpId          = 0;
+
+    NAS_MEM_SET_S(pstSysSyncReq->astFreqList,
+                  sizeof(CNAS_CAS_HRPD_FREQENCY_CHANNEL_STRU) * CNAS_CAS_HRPD_MAX_FREQ_NUM,
+                  0x00,
+                  sizeof(CNAS_CAS_HRPD_FREQENCY_CHANNEL_STRU) * CNAS_CAS_HRPD_MAX_FREQ_NUM);
+
+    NAS_MEM_CPY_S(pstSysSyncReq->astFreqList,
+                  sizeof(CNAS_CAS_HRPD_FREQENCY_CHANNEL_STRU) * CNAS_CAS_HRPD_MAX_FREQ_NUM,
+                  pstFreqList,
+                  sizeof(CNAS_CAS_HRPD_FREQENCY_CHANNEL_STRU) * ulFreqNum);
+
+    pstSysSyncReq->ulFreqNum = ulFreqNum;
+
+    CNAS_MNTN_LogMsgInfo((MSG_HEADER_STRU*)pstSysSyncReq);
+
+    /* 发送消息 */
+    (VOS_VOID)PS_SEND_MSG(UEPS_PID_HSD, pstSysSyncReq);
+
+    return;
+}
+
+
+VOS_VOID CNAS_HSD_SndCasStopSysSyncReq(VOS_VOID)
+{
+    CNAS_CAS_HRPD_STOP_SYSTEM_SYNC_REQ_STRU                *pstStopSysAcqReq;
+
+    /* 分配消息 */
+    pstStopSysAcqReq = (CNAS_CAS_HRPD_STOP_SYSTEM_SYNC_REQ_STRU *)PS_ALLOC_MSG(UEPS_PID_HSD, \
+                                                                               sizeof(CNAS_CAS_HRPD_STOP_SYSTEM_SYNC_REQ_STRU) - VOS_MSG_HEAD_LENGTH);
+
+    if (VOS_NULL_PTR == pstStopSysAcqReq)
+    {
+        return;
+    }
+
+    /* 填充消息 */
+    pstStopSysAcqReq->ulReceiverPid       = UEPS_PID_HALMP;
+    pstStopSysAcqReq->enMsgId             = ID_CNAS_CAS_HRPD_STOP_SYSTEM_SYNC_REQ;
+    pstStopSysAcqReq->usOpId              = 0;
+
+    CNAS_MNTN_LogMsgInfo((MSG_HEADER_STRU*)pstStopSysAcqReq);
+
+    /* 发送消息 */
+    (VOS_VOID)PS_SEND_MSG(UEPS_PID_HSD, pstStopSysAcqReq);
+
+    return;
+}
+
+
+VOS_VOID CNAS_HSD_SndCasOocNtf(VOS_VOID)
+{
+    CNAS_CAS_HRPD_OOC_NTF_STRU          *pstOocNtf;
+
+    /* 分配消息 */
+    pstOocNtf = (CNAS_CAS_HRPD_OOC_NTF_STRU *)PS_ALLOC_MSG(UEPS_PID_HSD, sizeof(CNAS_CAS_HRPD_OOC_NTF_STRU) - VOS_MSG_HEAD_LENGTH);
+
+    if (VOS_NULL_PTR == pstOocNtf)
+    {
+        return;
+    }
+
+    pstOocNtf->ulReceiverPid       = UEPS_PID_HALMP;
+    pstOocNtf->enMsgId             = ID_CNAS_CAS_HRPD_OOC_NTF;
+    pstOocNtf->usOpId              = 0;
+
+    CNAS_MNTN_LogMsgInfo((MSG_HEADER_STRU*)pstOocNtf);
+
+    /* 发送消息 */
+    (VOS_VOID)PS_SEND_MSG(UEPS_PID_HSD, pstOocNtf);
+
+    return;
+}
+
+
+VOS_VOID CNAS_HSD_SndCasPilotSearchSuccNtf(VOS_VOID)
+{
+    CNAS_CAS_HRPD_PILOT_SEARCH_SUCC_NTF_STRU               *pstPilotSearchSuccNft;
+
+    /* 分配消息 */
+    pstPilotSearchSuccNft = (CNAS_CAS_HRPD_PILOT_SEARCH_SUCC_NTF_STRU *)PS_ALLOC_MSG(UEPS_PID_HSD,
+                                                sizeof(CNAS_CAS_HRPD_PILOT_SEARCH_SUCC_NTF_STRU) - VOS_MSG_HEAD_LENGTH);
+
+    if (VOS_NULL_PTR == pstPilotSearchSuccNft)
+    {
+        return;
+    }
+
+    pstPilotSearchSuccNft->ulReceiverPid       = UEPS_PID_HALMP;
+    pstPilotSearchSuccNft->enMsgId             = ID_CNAS_CAS_HRPD_PILOT_SEARCH_SUCC_NTF;
+    pstPilotSearchSuccNft->usOpId              = 0;
+
+    CNAS_MNTN_LogMsgInfo((MSG_HEADER_STRU*)pstPilotSearchSuccNft);
+
+    CNAS_HSD_LogMsgInfo((MSG_HEADER_STRU*)pstPilotSearchSuccNft);
+
+    /* 发送消息 */
+    (VOS_VOID)PS_SEND_MSG(UEPS_PID_HSD, pstPilotSearchSuccNft);
+
+    return;
+}
+
+
+VOS_VOID CNAS_HSD_SndCasPilotSearchFailNtf(VOS_VOID)
+{
+    CNAS_CAS_HRPD_PILOT_SEARCH_FAIL_NTF_STRU               *pstPilotSearchFailNft;
+
+    /* 分配消息 */
+    pstPilotSearchFailNft = (CNAS_CAS_HRPD_PILOT_SEARCH_FAIL_NTF_STRU *)PS_ALLOC_MSG(UEPS_PID_HSD,
+                                                sizeof(CNAS_CAS_HRPD_PILOT_SEARCH_FAIL_NTF_STRU) - VOS_MSG_HEAD_LENGTH);
+
+    if (VOS_NULL_PTR == pstPilotSearchFailNft)
+    {
+        return;
+    }
+
+    pstPilotSearchFailNft->ulReceiverPid       = UEPS_PID_HALMP;
+    pstPilotSearchFailNft->enMsgId             = ID_CNAS_CAS_HRPD_PILOT_SEARCH_FAIL_NTF;
+    pstPilotSearchFailNft->usOpId              = 0;
+
+    CNAS_MNTN_LogMsgInfo((MSG_HEADER_STRU*)pstPilotSearchFailNft);
+
+    CNAS_HSD_LogMsgInfo((MSG_HEADER_STRU*)pstPilotSearchFailNft);
+
+    /* 发送消息 */
+    (VOS_VOID)PS_SEND_MSG(UEPS_PID_HSD, pstPilotSearchFailNft);
+
+    return;
+}
+
+
+VOS_VOID CNAS_HSD_SndCasSysCfgReq(
+    MSCC_HSD_SYS_CFG_REQ_STRU          *pstSysCfg
+)
+{
+    CNAS_CAS_HRPD_SYS_CFG_REQ_STRU     *pstSysCfgReq = VOS_NULL_PTR;
+
+    /* 分配消息 */
+    pstSysCfgReq = (CNAS_CAS_HRPD_SYS_CFG_REQ_STRU *)PS_ALLOC_MSG(UEPS_PID_HSD,
+                                                                  sizeof(CNAS_CAS_HRPD_SYS_CFG_REQ_STRU) - VOS_MSG_HEAD_LENGTH);
+
+    if (VOS_NULL_PTR == pstSysCfgReq)
+    {
+        return;
+    }
+
+    NAS_MEM_SET_S(pstSysCfgReq, sizeof(CNAS_CAS_HRPD_SYS_CFG_REQ_STRU), 0, sizeof(CNAS_CAS_HRPD_SYS_CFG_REQ_STRU));
+
+    pstSysCfgReq->ulSenderPid     = UEPS_PID_HSD;
+    pstSysCfgReq->ulSenderCpuId   = VOS_LOCAL_CPUID;
+    pstSysCfgReq->ulReceiverPid   = UEPS_PID_HALMP;
+    pstSysCfgReq->ulReceiverCpuId = VOS_LOCAL_CPUID;
+    pstSysCfgReq->ulLength        = sizeof(CNAS_CAS_HRPD_SYS_CFG_REQ_STRU) - VOS_MSG_HEAD_LENGTH;
+
+    pstSysCfgReq->usOpId          = pstSysCfg->usOpId;
+    pstSysCfgReq->enMsgId         = ID_CNAS_CAS_HRPD_SYS_CFG_REQ;
+
+    pstSysCfgReq->stSuppBand.bitOpBC0_A  = pstSysCfg->stCdmaBand.bitOpBC0_A;
+    pstSysCfgReq->stSuppBand.bitOpBC0_B  = pstSysCfg->stCdmaBand.bitOpBC0_B;
+    pstSysCfgReq->stSuppBand.bitOpBC1    = pstSysCfg->stCdmaBand.bitOpBC1;
+    pstSysCfgReq->stSuppBand.bitOpBC2    = pstSysCfg->stCdmaBand.bitOpBC2;
+    pstSysCfgReq->stSuppBand.bitOpBC3    = pstSysCfg->stCdmaBand.bitOpBC3;
+    pstSysCfgReq->stSuppBand.bitOpBC4    = pstSysCfg->stCdmaBand.bitOpBC4;
+    pstSysCfgReq->stSuppBand.bitOpBC5    = pstSysCfg->stCdmaBand.bitOpBC5;
+    pstSysCfgReq->stSuppBand.bitOpBC6    = pstSysCfg->stCdmaBand.bitOpBC6;
+    pstSysCfgReq->stSuppBand.bitOpBC7    = pstSysCfg->stCdmaBand.bitOpBC7;
+    pstSysCfgReq->stSuppBand.bitOpBC8    = pstSysCfg->stCdmaBand.bitOpBC8;
+    pstSysCfgReq->stSuppBand.bitOpBC9    = pstSysCfg->stCdmaBand.bitOpBC9;
+    pstSysCfgReq->stSuppBand.bitOpBC10   = pstSysCfg->stCdmaBand.bitOpBC10;
+    pstSysCfgReq->stSuppBand.bitOpBC11   = pstSysCfg->stCdmaBand.bitOpBC11;
+    pstSysCfgReq->stSuppBand.bitOpBC12   = pstSysCfg->stCdmaBand.bitOpBC12;
+    pstSysCfgReq->stSuppBand.bitOpBC14   = pstSysCfg->stCdmaBand.bitOpBC14;
+    pstSysCfgReq->stSuppBand.bitOpBC15   = pstSysCfg->stCdmaBand.bitOpBC15;
+
+    pstSysCfgReq->ucSuppRatNum    = pstSysCfg->ucSuppRatNum;
+
+    NAS_MEM_CPY_S(&(pstSysCfgReq->aenRatMode[0]),
+                  VOS_RATMODE_BUTT * sizeof(VOS_RATMODE_ENUM_UINT32),
+                  &(pstSysCfg->aenRatMode[0]),
+                  VOS_RATMODE_BUTT * sizeof(VOS_RATMODE_ENUM_UINT32));
+
+    CNAS_MNTN_LogMsgInfo((MSG_HEADER_STRU*)pstSysCfgReq);
+
+    CNAS_HSD_LogMsgInfo((MSG_HEADER_STRU*)pstSysCfgReq);
+
+    (VOS_VOID)PS_SEND_MSG(UEPS_PID_HSD, pstSysCfgReq);
+}
+
+
+VOS_VOID CNAS_HSD_SndCasSuspendReq(VOS_VOID)
+{
+    CNAS_CAS_HRPD_SUSPEND_REQ_STRU     *pstSuspendReq;
+
+    /* 分配消息 */
+    pstSuspendReq = (CNAS_CAS_HRPD_SUSPEND_REQ_STRU *)PS_ALLOC_MSG(UEPS_PID_HSD, sizeof(CNAS_CAS_HRPD_SUSPEND_REQ_STRU) - VOS_MSG_HEAD_LENGTH);
+
+    if (VOS_NULL_PTR == pstSuspendReq)
+    {
+        return;
+    }
+
+    pstSuspendReq->ulReceiverPid       = UEPS_PID_HALMP;
+    pstSuspendReq->enMsgId             = ID_CNAS_CAS_HRPD_SUSPEND_REQ;
+    pstSuspendReq->usOpId              = 0;
+
+    CNAS_HSD_LogMsgInfo((MSG_HEADER_STRU*)pstSuspendReq);
+
+    /* 发送消息 */
+    (VOS_VOID)PS_SEND_MSG(UEPS_PID_HSD, pstSuspendReq);
+
+    return;
+}
+
+
+VOS_VOID CNAS_HSD_SndCasDisableLteNtf(VOS_VOID)
+{
+    CNAS_CAS_HRPD_DISABLE_LTE_NTF_STRU *pstDisableReq;
+
+    /* 分配消息 */
+    pstDisableReq = (CNAS_CAS_HRPD_DISABLE_LTE_NTF_STRU *)PS_ALLOC_MSG(UEPS_PID_HSD,
+                                        sizeof(CNAS_CAS_HRPD_DISABLE_LTE_NTF_STRU) - VOS_MSG_HEAD_LENGTH);
+
+    if (VOS_NULL_PTR == pstDisableReq)
+    {
+        return;
+    }
+
+    NAS_MEM_SET_S(pstDisableReq, sizeof(CNAS_CAS_HRPD_DISABLE_LTE_NTF_STRU), 0, sizeof(CNAS_CAS_HRPD_DISABLE_LTE_NTF_STRU));
+
+    pstDisableReq->ulSenderCpuId       = VOS_LOCAL_CPUID;
+    pstDisableReq->ulSenderPid         = UEPS_PID_HSD;
+    pstDisableReq->ulReceiverCpuId     = VOS_LOCAL_CPUID;
+    pstDisableReq->ulReceiverPid       = UEPS_PID_HALMP;
+    pstDisableReq->ulLength            = sizeof(CNAS_CAS_HRPD_DISABLE_LTE_NTF_STRU) - VOS_MSG_HEAD_LENGTH;
+    pstDisableReq->enMsgId             = ID_CNAS_CAS_HRPD_DISABLE_LTE_NTF;
+    pstDisableReq->usOpId              = 0;
+
+    CNAS_MNTN_LogMsgInfo((MSG_HEADER_STRU*)pstDisableReq);
+
+    /* 发送消息 */
+    (VOS_VOID)PS_SEND_MSG(UEPS_PID_HSD, pstDisableReq);
+
+    return;
+}
+
+
+VOS_VOID CNAS_HSD_SndCasEnableLteNtf(VOS_VOID)
+{
+    CNAS_CAS_HRPD_ENABLE_LTE_NTF_STRU  *pstEnableLteNtf;
+
+    /* 分配消息 */
+    pstEnableLteNtf = (CNAS_CAS_HRPD_ENABLE_LTE_NTF_STRU *)PS_ALLOC_MSG(UEPS_PID_HSD,
+                                        sizeof(CNAS_CAS_HRPD_ENABLE_LTE_NTF_STRU) - VOS_MSG_HEAD_LENGTH);
+
+    if (VOS_NULL_PTR == pstEnableLteNtf)
+    {
+        return;
+    }
+
+    NAS_MEM_SET_S(pstEnableLteNtf, sizeof(CNAS_CAS_HRPD_ENABLE_LTE_NTF_STRU), 0, sizeof(CNAS_CAS_HRPD_ENABLE_LTE_NTF_STRU));
+
+    pstEnableLteNtf->ulSenderCpuId       = VOS_LOCAL_CPUID;
+    pstEnableLteNtf->ulSenderPid         = UEPS_PID_HSD;
+    pstEnableLteNtf->ulReceiverCpuId     = VOS_LOCAL_CPUID;
+    pstEnableLteNtf->ulReceiverPid       = UEPS_PID_HALMP;
+    pstEnableLteNtf->ulLength            = sizeof(CNAS_CAS_HRPD_ENABLE_LTE_NTF_STRU) - VOS_MSG_HEAD_LENGTH;
+    pstEnableLteNtf->enMsgId             = ID_CNAS_CAS_HRPD_ENABLE_LTE_NTF;
+    pstEnableLteNtf->usOpId              = 0;
+
+    CNAS_MNTN_LogMsgInfo((MSG_HEADER_STRU*)pstEnableLteNtf);
+
+    /* 发送消息 */
+    (VOS_VOID)PS_SEND_MSG(UEPS_PID_HSD, pstEnableLteNtf);
+
+    return;
+}
+
+
+VOS_VOID CNAS_HSD_SndCasBsrLteReq(
+    MSCC_HSD_BG_SEARCH_REQ_STRU        *pstMsg
+)
+{
+    CNAS_CAS_HRPD_BSR_LTE_REQ_STRU *pstBsrLteReq;
+
+    /* 分配消息 */
+    pstBsrLteReq = (CNAS_CAS_HRPD_BSR_LTE_REQ_STRU *)PS_ALLOC_MSG(UEPS_PID_HSD,
+                                        sizeof(CNAS_CAS_HRPD_BSR_LTE_REQ_STRU) - VOS_MSG_HEAD_LENGTH);
+
+    if (VOS_NULL_PTR == pstBsrLteReq)
+    {
+        return;
+    }
+
+    pstBsrLteReq->ulSenderCpuId       = VOS_LOCAL_CPUID;
+    pstBsrLteReq->ulSenderPid         = UEPS_PID_HSD;
+    pstBsrLteReq->ulReceiverCpuId     = VOS_LOCAL_CPUID;
+    pstBsrLteReq->ulReceiverPid       = UEPS_PID_HALMP;
+    pstBsrLteReq->ulLength            = sizeof(CNAS_CAS_HRPD_BSR_LTE_REQ_STRU) - VOS_MSG_HEAD_LENGTH;
+    pstBsrLteReq->enMsgId             = ID_CNAS_CAS_HRPD_BSR_LTE_REQ;
+    pstBsrLteReq->usOpId              = 0;
+    pstBsrLteReq->enBsrType           = CNAS_HSD_ConvertBsrType(pstMsg->enBsrType);
+    pstBsrLteReq->ucPlmnNum           = CNAS_MIN(pstMsg->ucPlmnNum, CNAS_CAS_HRPD_BSR_REQ_MAX_PLMN_NUM);
+
+    if (pstBsrLteReq->ucPlmnNum > 0)
+    {
+        CNAS_HSD_ConvertNasPlmnToSimFormat(pstBsrLteReq->ucPlmnNum,
+                                           pstMsg->astPlmnList,
+                                           pstBsrLteReq->astPlmnList);
+    }
+
+    CNAS_MNTN_LogMsgInfo((MSG_HEADER_STRU*)pstBsrLteReq);
+
+    CNAS_HSD_LogMsgInfo((MSG_HEADER_STRU*)pstBsrLteReq);
+
+    /* 发送消息 */
+    (VOS_VOID)PS_SEND_MSG(UEPS_PID_HSD, pstBsrLteReq);
+
+    return;
+}
+
+
+VOS_VOID CNAS_HSD_SndCasStopBsrLteReq(VOS_VOID)
+{
+    CNAS_CAS_HRPD_STOP_BSR_LTE_REQ_STRU                    *pstStopBsrLteReq;
+
+    /* 分配消息 */
+    pstStopBsrLteReq = (CNAS_CAS_HRPD_STOP_BSR_LTE_REQ_STRU *)PS_ALLOC_MSG(UEPS_PID_HSD,
+                                        sizeof(CNAS_CAS_HRPD_STOP_BSR_LTE_REQ_STRU) - VOS_MSG_HEAD_LENGTH);
+
+    if (VOS_NULL_PTR == pstStopBsrLteReq)
+    {
+        return;
+    }
+
+    pstStopBsrLteReq->ulSenderCpuId       = VOS_LOCAL_CPUID;
+    pstStopBsrLteReq->ulSenderPid         = UEPS_PID_HSD;
+    pstStopBsrLteReq->ulReceiverCpuId     = VOS_LOCAL_CPUID;
+    pstStopBsrLteReq->ulReceiverPid       = UEPS_PID_HALMP;
+    pstStopBsrLteReq->ulLength            = sizeof(CNAS_CAS_HRPD_STOP_BSR_LTE_REQ_STRU) - VOS_MSG_HEAD_LENGTH;
+    pstStopBsrLteReq->enMsgId             = ID_CNAS_CAS_HRPD_STOP_BSR_LTE_REQ;
+    pstStopBsrLteReq->usOpId              = 0;
+
+    CNAS_MNTN_LogMsgInfo((MSG_HEADER_STRU*)pstStopBsrLteReq);
+
+    CNAS_HSD_LogMsgInfo((MSG_HEADER_STRU*)pstStopBsrLteReq);
+
+    /* 发送消息 */
+    (VOS_VOID)PS_SEND_MSG(UEPS_PID_HSD, pstStopBsrLteReq);
+
+    return;
+}
+
+
+
+
+VOS_VOID CNAS_HSD_SndCasFreqListCnf(
+    VOS_UINT32                          ulFreqNum,
+    CNAS_PRL_FREQENCY_CHANNEL_STRU     *pstFreqList
+)
+{
+    CNAS_CAS_HRPD_BSR_FREQ_LIST_QUERY_CNF_STRU             *pstFreqListCnf;
+
+    /* 分配消息 */
+    pstFreqListCnf = (CNAS_CAS_HRPD_BSR_FREQ_LIST_QUERY_CNF_STRU *)PS_ALLOC_MSG(UEPS_PID_HSD,
+                                        sizeof(CNAS_CAS_HRPD_BSR_FREQ_LIST_QUERY_CNF_STRU) - VOS_MSG_HEAD_LENGTH);
+
+    if (VOS_NULL_PTR == pstFreqListCnf)
+    {
+        return;
+    }
+
+    /* 填充消息 */
+    pstFreqListCnf->ulSenderCpuId       = VOS_LOCAL_CPUID;
+    pstFreqListCnf->ulSenderPid         = UEPS_PID_HSD;
+    pstFreqListCnf->ulReceiverCpuId     = VOS_LOCAL_CPUID;
+    pstFreqListCnf->ulReceiverPid       = UEPS_PID_HALMP;
+    pstFreqListCnf->ulLength            = sizeof(CNAS_CAS_HRPD_BSR_FREQ_LIST_QUERY_CNF_STRU) - VOS_MSG_HEAD_LENGTH;
+    pstFreqListCnf->enMsgId             = ID_CNAS_CAS_HRPD_BSR_FREQ_LIST_QUERY_CNF;
+    pstFreqListCnf->usOpId              = 0;
+
+    NAS_MEM_SET_S(pstFreqListCnf->astFreqList,
+                  sizeof(CNAS_CAS_HRPD_FREQENCY_CHANNEL_STRU) * CNAS_CAS_HRPD_MAX_FREQ_NUM,
+                  0x00,
+                  sizeof(CNAS_CAS_HRPD_FREQENCY_CHANNEL_STRU) * CNAS_CAS_HRPD_MAX_FREQ_NUM);
+
+    NAS_MEM_CPY_S(pstFreqListCnf->astFreqList,
+                  sizeof(CNAS_CAS_HRPD_FREQENCY_CHANNEL_STRU) * CNAS_CAS_HRPD_MAX_FREQ_NUM,
+                  pstFreqList,
+                  sizeof(CNAS_CAS_HRPD_FREQENCY_CHANNEL_STRU) * ulFreqNum);
+
+    pstFreqListCnf->ulFreqNum = ulFreqNum;
+
+    CNAS_MNTN_LogMsgInfo((MSG_HEADER_STRU*)pstFreqListCnf);
+
+    /* 发送消息 */
+    (VOS_VOID)PS_SEND_MSG(UEPS_PID_HSD, pstFreqListCnf);
+
+    return;
+}
+
+
+VOS_VOID CNAS_HSD_SndCasSubnetIdChkCnf(
+    PS_BOOL_ENUM_UINT8                                      enIsValidFlag,
+    CNAS_CAS_HRPD_CHECK_SUBNET_FAIL_REASON_ENUM_UINT16      enFailReason
+)
+{
+    CNAS_CAS_HRPD_SUBNET_ID_CHECK_CNF_STRU                 *pstChkCnf;
+
+    /* 分配消息 */
+    pstChkCnf = (CNAS_CAS_HRPD_SUBNET_ID_CHECK_CNF_STRU *)PS_ALLOC_MSG(UEPS_PID_HSD,
+                                        sizeof(CNAS_CAS_HRPD_SUBNET_ID_CHECK_CNF_STRU) - VOS_MSG_HEAD_LENGTH);
+
+    if (VOS_NULL_PTR == pstChkCnf)
+    {
+        return;
+    }
+
+    /* 填充消息 */
+    pstChkCnf->ulSenderCpuId            = VOS_LOCAL_CPUID;
+    pstChkCnf->ulSenderPid              = UEPS_PID_HSD;
+    pstChkCnf->ulReceiverCpuId          = VOS_LOCAL_CPUID;
+    pstChkCnf->ulReceiverPid            = UEPS_PID_HALMP;
+    pstChkCnf->ulLength                 = sizeof(CNAS_CAS_HRPD_SUBNET_ID_CHECK_CNF_STRU) - VOS_MSG_HEAD_LENGTH;
+    pstChkCnf->enMsgId                  = ID_CNAS_CAS_HRPD_SUBNET_ID_CHECK_CNF;
+    pstChkCnf->usOpId                   = 0;
+    pstChkCnf->enSubnetIdIsValidFlag    = enIsValidFlag;
+    pstChkCnf->enFailReason             = enFailReason;
+
+    CNAS_MNTN_LogMsgInfo((MSG_HEADER_STRU*)pstChkCnf);
+
+    /* 发送消息 */
+    (VOS_VOID)PS_SEND_MSG(UEPS_PID_HSD, pstChkCnf);
+
+    return;
+}
+
+
+VOS_VOID CNAS_HSD_SndCasSuspendRsp(
+    CAS_CNAS_HRPD_RSLT_ENUM_UINT16      enRslt
+)
+{
+    CNAS_CAS_HRPD_SUSPEND_RSP_STRU      *pstSuspendRsp;
+
+    /* 分配消息 */
+    pstSuspendRsp = (CNAS_CAS_HRPD_SUSPEND_RSP_STRU *)PS_ALLOC_MSG(UEPS_PID_HSD,
+                                        sizeof(CNAS_CAS_HRPD_SUSPEND_RSP_STRU) - VOS_MSG_HEAD_LENGTH);
+
+    if (VOS_NULL_PTR == pstSuspendRsp)
+    {
+        return;
+    }
+
+    /* 填充消息 */
+    pstSuspendRsp->ulSenderCpuId            = VOS_LOCAL_CPUID;
+    pstSuspendRsp->ulSenderPid              = UEPS_PID_HSD;
+    pstSuspendRsp->ulReceiverCpuId          = VOS_LOCAL_CPUID;
+    pstSuspendRsp->ulReceiverPid            = UEPS_PID_HALMP;
+    pstSuspendRsp->ulLength                 = sizeof(CNAS_CAS_HRPD_SUSPEND_RSP_STRU) - VOS_MSG_HEAD_LENGTH;
+    pstSuspendRsp->enMsgId                  = ID_CNAS_CAS_HRPD_SUSPEND_RSP;
+    pstSuspendRsp->usOpId                   = 0;
+    pstSuspendRsp->enRslt                   = enRslt;
+
+    CNAS_MNTN_LogMsgInfo((MSG_HEADER_STRU*)pstSuspendRsp);
+
+    CNAS_HSD_LogMsgInfo((MSG_HEADER_STRU*)pstSuspendRsp);
+
+    /* 发送消息 */
+    (VOS_VOID)PS_SEND_MSG(UEPS_PID_HSD, pstSuspendRsp);
+
+    return;
+}
+
+
+VOS_VOID CNAS_HSD_SndCasResumeRsp(VOS_VOID)
+{
+    CNAS_CAS_HRPD_RESUME_RSP_STRU      *pstResumeRsp;
+
+    /* 分配消息 */
+    pstResumeRsp = (CNAS_CAS_HRPD_RESUME_RSP_STRU *)PS_ALLOC_MSG(UEPS_PID_HSD,
+                                        sizeof(CNAS_CAS_HRPD_RESUME_RSP_STRU) - VOS_MSG_HEAD_LENGTH);
+
+    if (VOS_NULL_PTR == pstResumeRsp)
+    {
+        return;
+    }
+
+    /* 填充消息 */
+    pstResumeRsp->ulSenderCpuId            = VOS_LOCAL_CPUID;
+    pstResumeRsp->ulSenderPid              = UEPS_PID_HSD;
+    pstResumeRsp->ulReceiverCpuId          = VOS_LOCAL_CPUID;
+    pstResumeRsp->ulReceiverPid            = UEPS_PID_HALMP;
+    pstResumeRsp->ulLength                 = sizeof(CNAS_CAS_HRPD_RESUME_RSP_STRU) - VOS_MSG_HEAD_LENGTH;
+    pstResumeRsp->enMsgId                  = ID_CNAS_CAS_HRPD_RESUME_RSP;
+    pstResumeRsp->usOpId                   = 0;
+
+    CNAS_MNTN_LogMsgInfo((MSG_HEADER_STRU*)pstResumeRsp);
+
+    CNAS_HSD_LogMsgInfo((MSG_HEADER_STRU*)pstResumeRsp);
+
+    /* 发送消息 */
+    (VOS_VOID)PS_SEND_MSG(UEPS_PID_HSD, pstResumeRsp);
+
+    return;
+}
+
+
+VOS_UINT32 CNAS_HSD_SndCasCFreqLockNtf(MSCC_HSD_CFREQ_LOCK_NTF_STRU   *pstCFreqLockNtf)
+{
+    CNAS_CAS_HRPD_FREQ_LOCK_NTF_STRU     *pstCnasCasCFreqLockNtf   = VOS_NULL_PTR;
+
+    pstCnasCasCFreqLockNtf =
+            (CNAS_CAS_HRPD_FREQ_LOCK_NTF_STRU *)PS_ALLOC_MSG_WITH_HEADER_LEN(UEPS_PID_HSD,
+                                                                        sizeof(CNAS_CAS_HRPD_FREQ_LOCK_NTF_STRU));
+
+    if (VOS_NULL_PTR == pstCnasCasCFreqLockNtf)
+    {
+        return VOS_FALSE;
+    }
+
+    NAS_MEM_SET_S(((VOS_UINT8 *)pstCnasCasCFreqLockNtf + VOS_MSG_HEAD_LENGTH),
+                  (sizeof(CNAS_CAS_HRPD_FREQ_LOCK_NTF_STRU) - VOS_MSG_HEAD_LENGTH),
+                  0x00,
+                  (sizeof(CNAS_CAS_HRPD_FREQ_LOCK_NTF_STRU) - VOS_MSG_HEAD_LENGTH));
+
+    /* 填写消息头部信息 */
+    pstCnasCasCFreqLockNtf->ulSenderCpuId   = VOS_LOCAL_CPUID;
+    pstCnasCasCFreqLockNtf->ulSenderPid     = UEPS_PID_HSD;
+    pstCnasCasCFreqLockNtf->ulReceiverCpuId = VOS_LOCAL_CPUID;
+    pstCnasCasCFreqLockNtf->ulReceiverPid   = UEPS_PID_HALMP;
+    pstCnasCasCFreqLockNtf->enMsgId         = ID_CNAS_CAS_HRPD_FREQ_LOCK_NTF;
+    pstCnasCasCFreqLockNtf->usOpId          = 0;
+    pstCnasCasCFreqLockNtf->enMode          = pstCFreqLockNtf->enFreqLockMode;
+    pstCnasCasCFreqLockNtf->usBandClass     = pstCFreqLockNtf->usHrpdBandClass;
+    pstCnasCasCFreqLockNtf->usFreq          = pstCFreqLockNtf->usHrpdFreq;
+    pstCnasCasCFreqLockNtf->usPilotPn       = pstCFreqLockNtf->usHrpdPn;
+
+    /* 发送消息 */
+    (VOS_VOID)PS_SEND_MSG(UEPS_PID_HSD, pstCnasCasCFreqLockNtf);
+
+    return VOS_TRUE;
+}
+
+
+VOS_VOID CNAS_HSD_SndCasBeginSessionNotify(VOS_VOID)
+{
+    CNAS_CAS_HRPD_SESSION_BEGIN_NTF_STRU                   *pstBeginSessionNotify = VOS_NULL_PTR;
+    VOS_UINT32                                              ulMsgLength;
+
+    ulMsgLength = sizeof(CNAS_CAS_HRPD_SESSION_BEGIN_NTF_STRU) - VOS_MSG_HEAD_LENGTH;
+
+    pstBeginSessionNotify = (CNAS_CAS_HRPD_SESSION_BEGIN_NTF_STRU *)PS_ALLOC_MSG(UEPS_PID_HSD, ulMsgLength);
+
+    if (VOS_NULL_PTR == pstBeginSessionNotify)
+    {
+        return;
+    }
+
+    NAS_MEM_SET_S((VOS_UINT8 *)pstBeginSessionNotify + VOS_MSG_HEAD_LENGTH, ulMsgLength, 0x00, ulMsgLength);
+
+    /* 构造消息结构体 */
+    pstBeginSessionNotify->ulSenderCpuId    = VOS_LOCAL_CPUID;
+    pstBeginSessionNotify->ulSenderPid      = UEPS_PID_HSD;
+    pstBeginSessionNotify->ulReceiverCpuId  = VOS_LOCAL_CPUID;
+    pstBeginSessionNotify->ulReceiverPid    = UEPS_PID_HALMP;
+    pstBeginSessionNotify->ulLength         = ulMsgLength;
+    pstBeginSessionNotify->enMsgId          = ID_CNAS_CAS_HRPD_SESSION_BEGIN_NTF;
+    pstBeginSessionNotify->enSessionType    = CNAS_CAS_HRPD_SESSION_TYPE_NETWORK_ACQ;
+
+    (VOS_VOID)PS_SEND_MSG(UEPS_PID_HSD, pstBeginSessionNotify);
+
+    return;
+}
+
+
+VOS_VOID CNAS_HSD_SndCasEndSessionNotify(VOS_VOID)
+{
+    CNAS_CAS_HRPD_SESSION_END_NTF_STRU                     *pstEndSessionNotify = VOS_NULL_PTR;
+    VOS_UINT32                                              ulMsgLength;
+
+    ulMsgLength = sizeof(CNAS_CAS_HRPD_SESSION_END_NTF_STRU) - VOS_MSG_HEAD_LENGTH;
+
+    pstEndSessionNotify = (CNAS_CAS_HRPD_SESSION_END_NTF_STRU *)PS_ALLOC_MSG(UEPS_PID_HSD, ulMsgLength);
+
+    if (VOS_NULL_PTR == pstEndSessionNotify)
+    {
+        return;
+    }
+
+    NAS_MEM_SET_S((VOS_UINT8 *)pstEndSessionNotify + VOS_MSG_HEAD_LENGTH, ulMsgLength, 0x00, ulMsgLength);
+
+    /* 构造消息结构体 */
+    pstEndSessionNotify->ulSenderCpuId    = VOS_LOCAL_CPUID;
+    pstEndSessionNotify->ulSenderPid      = UEPS_PID_HSD;
+    pstEndSessionNotify->ulReceiverCpuId  = VOS_LOCAL_CPUID;
+    pstEndSessionNotify->ulReceiverPid    = UEPS_PID_HALMP;
+    pstEndSessionNotify->ulLength         = ulMsgLength;
+    pstEndSessionNotify->enMsgId          = ID_CNAS_CAS_HRPD_SESSION_END_NTF;
+    pstEndSessionNotify->enSessionType    = CNAS_CAS_HRPD_SESSION_TYPE_NETWORK_ACQ;
+
+    (VOS_VOID)PS_SEND_MSG(UEPS_PID_HSD, pstEndSessionNotify);
+
+    return;
+}
+
+
+
+VOS_UINT32 CNAS_HSD_SndCasHdrCsqSetReq(
+    MSCC_HSD_HDR_CSQ_SET_REQ_STRU      *psrHdrSetReq
+)
+{
+    CNAS_CAS_HRPD_SET_SIGNAL_QUALITY_REQ_STRU              *pstHdrcsqSetReq = VOS_NULL_PTR;
+    VOS_UINT32                                              ulMsgLength;
+
+    ulMsgLength = sizeof(CNAS_CAS_HRPD_SET_SIGNAL_QUALITY_REQ_STRU) - VOS_MSG_HEAD_LENGTH;
+
+    pstHdrcsqSetReq = (CNAS_CAS_HRPD_SET_SIGNAL_QUALITY_REQ_STRU *)PS_ALLOC_MSG(UEPS_PID_HSD, ulMsgLength);
+
+    if (VOS_NULL_PTR == pstHdrcsqSetReq)
+    {
+        return VOS_ERR;
+    }
+
+    NAS_MEM_SET_S((VOS_UINT8 *)pstHdrcsqSetReq + VOS_MSG_HEAD_LENGTH, ulMsgLength, 0x00, ulMsgLength);
+
+    /* 构造消息结构体 */
+    pstHdrcsqSetReq->ulSenderCpuId    = VOS_LOCAL_CPUID;
+    pstHdrcsqSetReq->ulSenderPid      = UEPS_PID_HSD;
+    pstHdrcsqSetReq->ulReceiverCpuId  = VOS_LOCAL_CPUID;
+    pstHdrcsqSetReq->ulReceiverPid    = UEPS_PID_HRUP;
+    pstHdrcsqSetReq->ulLength         = ulMsgLength;
+
+    pstHdrcsqSetReq->enMsgId                = ID_CNAS_CAS_HRPD_SET_SIGNAL_QUALITY_REQ;
+
+    pstHdrcsqSetReq->ucRptRssiThreshold     = psrHdrSetReq->stHdrCsq.ucRssiThreshold;
+    pstHdrcsqSetReq->ucTimeInterval         = psrHdrSetReq->stHdrCsq.ucTimeInterval;
+    pstHdrcsqSetReq->ucRptSinrThreshold     = psrHdrSetReq->stHdrCsq.ucSnrThreshold;
+    pstHdrcsqSetReq->ucRptEcIoThreshold     = psrHdrSetReq->stHdrCsq.ucEcioThreshold;
+
+    /* SNR THRESHOLD 保留，以后迭代有可能会添加 */
+
+    (VOS_VOID)PS_SEND_MSG(UEPS_PID_HSD, pstHdrcsqSetReq);
+
+    return VOS_OK;
+}
+
+
+VOS_UINT32 CNAS_HSD_SndCasSuspendRelReq(VOS_VOID)
+{
+    CNAS_CAS_HRPD_SUSPEND_REL_REQ_STRU *pstSuspendRelReq = VOS_NULL_PTR;
+    VOS_UINT32                          ulMsgLength;
+
+    ulMsgLength = sizeof(CNAS_CAS_HRPD_SUSPEND_REL_REQ_STRU) - VOS_MSG_HEAD_LENGTH;
+
+    pstSuspendRelReq = (CNAS_CAS_HRPD_SUSPEND_REL_REQ_STRU *)PS_ALLOC_MSG(UEPS_PID_HSD, ulMsgLength);
+
+    if (VOS_NULL_PTR == pstSuspendRelReq)
+    {
+        return VOS_ERR;
+    }
+
+    NAS_MEM_SET_S((VOS_UINT8 *)pstSuspendRelReq + VOS_MSG_HEAD_LENGTH, ulMsgLength ,0x00, ulMsgLength);
+
+    /* 构造消息结构体 */
+    pstSuspendRelReq->ulSenderCpuId    = VOS_LOCAL_CPUID;
+    pstSuspendRelReq->ulSenderPid      = UEPS_PID_HSD;
+    pstSuspendRelReq->ulReceiverCpuId  = VOS_LOCAL_CPUID;
+    pstSuspendRelReq->ulReceiverPid    = UEPS_PID_HALMP;
+    pstSuspendRelReq->ulLength         = ulMsgLength;
+
+    pstSuspendRelReq->enMsgId          = ID_CNAS_CAS_HRPD_SUSPEND_REL_REQ;
+
+    CNAS_HSD_LogMsgInfo((MSG_HEADER_STRU*)pstSuspendRelReq);
+
+    (VOS_VOID)PS_SEND_MSG(UEPS_PID_HSD, pstSuspendRelReq);
+
+    return VOS_OK;
+}
+
+
+/*lint -restore*/
+
+#endif
+
+#ifdef __cplusplus
+    #if __cplusplus
+        }
+    #endif
+#endif

@@ -1,0 +1,63 @@
+#
+# Generic huawei hisi misc drivers configuration
+#
+menuconfig CONNECTIVITY_HI110X
+	bool "Hisilicon Wireless Connectivity Support"
+	---help---
+		If you want to use Hisilicon  Wireless Connectivity, you should set this,
+		and choose one product
+
+if CONNECTIVITY_HI110X
+
+if ARCH_HI6250
+config HISI_GPS_REF_CLK
+       bool "hisi_gnss_refclk"
+       default y
+endif
+
+if ARCH_HI3650
+config HISI_GPS_REF_CLK
+       bool "hisi_gnss_refclk"
+       default y
+endif
+
+config HI110X_SDIO_STD_CARD_SUPPORT
+        bool
+        default y
+
+config HI110X_SDIO_FPGA
+        bool
+        default y
+
+config HI110X_SDIO_NON_STD_CARD_SUPPORT
+        bool
+        default y
+        depends on !HI110X_SDIO_STD_CARD_SUPPORT
+
+config HI110X_SDIO_DETECT_FUNCTION
+        bool
+        default y
+
+config HI1102_PLAT_HW_CHR
+  bool "Hisilicon 1102 platform chr log"
+  default y
+  ---help---
+        Hisilicon 1102 platform chr log
+
+config HI110X_DRIVER_PATH
+	string "The Kernel Driver Path"
+	default "drivers/connectivity/hisi"
+
+config HI1102_WIFI
+        tristate "Hisilicon Wireless Connectivity WiFi Module"
+        depends on WIRELESS && CFG80211
+        select WIRELESS_EXT
+        select WEXT_SPY
+        select WEXT_PRIV
+        default y
+        ---help---
+                If you want to use Hisilicon  Wireless Connectivity,first choose this.
+
+endif
+
+

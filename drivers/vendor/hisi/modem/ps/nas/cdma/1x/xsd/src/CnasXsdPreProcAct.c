@@ -1,0 +1,1361 @@
+
+
+/*****************************************************************************
+  1 头文件包含
+*****************************************************************************/
+#include  "CnasXsdPreProcAct.h"
+#include  "CnasXsdSndXreg.h"
+#include  "CnasXsdCtx.h"
+#include  "CnasXsdComFunc.h"
+#include  "CnasXsdMntn.h"
+#include  "CnasXsdSndInternalMsg.h"
+#include  "CnasXsdFsmMainTbl.h"
+#include  "CnasXsdSysAcqStrategy.h"
+#include  "CnasXsdSndCas.h"
+#include  "CnasXsdSndMscc.h"
+#include  "cas_1x_trchctrl_proc_nas_pif.h"
+#include "CnasXsdProcNvim.h"
+
+
+
+#ifdef  __cplusplus
+#if  __cplusplus
+extern "C"{
+#endif
+#endif
+
+#define THIS_FILE_ID                    PS_FILE_ID_CNAS_XSD_PRE_PROC_ACT_C
+
+#if (FEATURE_ON == FEATURE_UE_MODE_CDMA)
+
+/*****************************************************************************
+  2 全局变量定义
+*****************************************************************************/
+
+/*****************************************************************************
+  3 函数定义
+*****************************************************************************/
+/*lint -save -e958*/
+
+
+VOS_UINT32 CNAS_XSD_RcvSliceReverseProtectTimerExpired_PreProc(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    VOS_UINT32                          ulCurSlice;
+    VOS_UINT32                          ulRunSliceNum;
+    VOS_UINT8                           i;
+    CNAS_XSD_AVOID_FREQ_INFO_STRU      *pstAvoidFreqInfo = VOS_NULL_PTR;
+    VOS_UINT8                           ucAvoidFreqListNum;
+
+    ucAvoidFreqListNum                  = CNAS_XSD_GetAvoidFreqListNum();
+
+    /* 获取当前系统的slice */
+    ulCurSlice = CNAS_XSD_GetSystemSlice();
+
+    /* 遍历avoid列表中所有的频点的到期slice */
+    for (i = 0; i < CNAS_MIN(ucAvoidFreqListNum, CNAS_XSD_MAX_AVOID_FREQ_NUM); i++)
+    {
+        pstAvoidFreqInfo = CNAS_XSD_GetAvoidFreqFromAvoidList(i);
+
+        if (VOS_NULL_PTR == pstAvoidFreqInfo)
+        {
+            continue;
+        }
+
+        if (VOS_FALSE == pstAvoidFreqInfo->ucAvoidFlag)
+        {
+            continue;
+        }
+
+        if (ulCurSlice < pstAvoidFreqInfo->ulStartSlice)
+        {
+            /* 考虑反转问题 */
+            ulRunSliceNum = CNAS_XSD_MAX_SLICE_VALUE - pstAvoidFreqInfo->ulStartSlice + ulCurSlice + 1;
+        }
+        else
+        {
+            ulRunSliceNum = ulCurSlice - pstAvoidFreqInfo->ulStartSlice;
+        }
+
+        /* 如果已经运行的slice数目大于等于到期的slice数目，从avoid频点列表中剔除该频点 */
+        if (ulRunSliceNum >= pstAvoidFreqInfo->ulExpiredSliceNum)
+        {
+            CNAS_XSD_DeleteAvoidFlagFromAvoidList(i);
+        }
+    }
+
+    /*如果avoid列表中存在禁用标记，表示存在被禁用的频点，启动定时器 */
+    if (VOS_TRUE == CNAS_XSD_IsExistAvoidFlagInAvoidlist())
+    {
+        CNAS_XSD_StartTimer(TI_CNAS_XSD_SLICE_REVERSE_PROTECT_TIMER,
+                            TI_CNAS_XSD_SLICE_REVERSE_PROTECT_TIMER_LEN);
+    }
+
+    CNAS_XSD_LogAvoidFreqList(CNAS_XSD_GetAvoidFreqListAddr());
+
+    return VOS_TRUE;
+}
+
+#ifdef DMT
+
+VOS_UINT32 CNAS_XSD_RcvXsdTestCfgREQ_PreProc(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    CNAS_XSD_XSD_TEST_CFG_REQ_STRU     *pstCfgReq = VOS_NULL_PTR;
+
+    pstCfgReq = (CNAS_XSD_XSD_TEST_CFG_REQ_STRU *)pstMsg;
+
+    g_ulCurSlice = pstCfgReq->ulCurSlice;
+
+    return VOS_TRUE;
+}
+
+
+VOS_UINT32 CNAS_XSD_RcvXsdMofiyPrlAcqRecordReq_PreProc(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    CNAS_XSD_XSD_MODIFY_PRL_ACQ_RECORD_REQ_STRU            *pstModifyReq   = VOS_NULL_PTR;
+    VOS_UINT16                                              i;
+    CNAS_PRL_ACQ_RECORD_STRU                               *pstRecordInfo = VOS_NULL_PTR;
+
+    pstModifyReq = (CNAS_XSD_XSD_MODIFY_PRL_ACQ_RECORD_REQ_STRU *)pstMsg;
+
+    for (i = 0; i < pstModifyReq->usRecNum; i++)
+    {
+        pstRecordInfo = CNAS_PRL_GetSpecifiedPrlAcqRecord(pstModifyReq->astAcqRecord[i].usAcqRecordIndex);
+
+        if ((VOS_NULL_PTR != pstRecordInfo)
+         && (VOS_TRUE     == pstRecordInfo->ucAcqValid))
+        {
+            switch (pstRecordInfo->enAcqType)
+            {
+                case CNAS_PRL_ACQ_TYPE_CELLULAR_CDMA_CUSTOM_CHANNELS:
+                    {
+                        if (pstModifyReq->astAcqRecord[i].stAcqRecordInfo.u.stCelluarCustomSys.ucNumOfChans <= pstRecordInfo->u.stCelluarCustomSys.ucNumOfChans)
+                        {
+                            pstRecordInfo->u.stCelluarCustomSys.ucNumOfChans = \
+                                pstModifyReq->astAcqRecord[i].stAcqRecordInfo.u.stCelluarCustomSys.ucNumOfChans;
+
+                            NAS_MEM_CPY_S(&(pstRecordInfo->u.stCelluarCustomSys.ausChan[0]),
+                                          sizeof(VOS_UINT16)*pstRecordInfo->u.stCelluarCustomSys.ucNumOfChans,
+                                          &(pstModifyReq->astAcqRecord[i].stAcqRecordInfo.u.stCelluarCustomSys.ausChan[0]),
+                                          sizeof(VOS_UINT16)*pstRecordInfo->u.stCelluarCustomSys.ucNumOfChans);
+                        }
+                    }
+                    break;
+
+                default:
+
+                    break;
+
+            }
+        }
+    }
+
+    return VOS_TRUE;
+}
+
+
+VOS_UINT32 CNAS_XSD_RcvXsdMofiyPrlSysRecordReq_PreProc(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    CNAS_XSD_XSD_MODIFY_PRL_SYS_RECORD_REQ_STRU            *pstModifyReq  = VOS_NULL_PTR;
+    VOS_UINT16                                              i;
+    CNAS_PRL_EXT_SYS_RECORD_STRU                           *pstRecordInfo = VOS_NULL_PTR;
+    VOS_UINT16                                              usPriLvl;
+
+    pstModifyReq = (CNAS_XSD_XSD_MODIFY_PRL_SYS_RECORD_REQ_STRU *)pstMsg;
+
+    for (i = 0; i < pstModifyReq->usRecNum; i++)
+    {
+        pstRecordInfo = CNAS_PRL_GetSpecifiedPrlSysRecord(pstModifyReq->astSysRecord[i].usSysRecordIndex);
+
+        if (VOS_NULL_PTR != pstRecordInfo)
+        {
+            NAS_MEM_CPY_S(pstRecordInfo,
+                          sizeof(CNAS_PRL_EXT_SYS_RECORD_STRU),
+                          &(pstModifyReq->astSysRecord[i].stSysRecordInfo),
+                          sizeof(CNAS_PRL_EXT_SYS_RECORD_STRU));
+        }
+    }
+
+    usPriLvl = 0;
+    /* 这儿需要重新刷新一下PRL表中的level，避免后续GEO系统记录搜索时出错 */
+    for (i = 0; i <CNAS_PRL_GetPrlHeaderInfoAddr()->usNumSysRecs; i++)
+    {
+        CNAS_PRL_GetPrlSysInfoAddr()->pstSysRecord[i].usPriLvl = usPriLvl;
+
+        if (CNAS_PRL_RELATIVE_PRI_MORE == CNAS_PRL_GetPrlSysInfoAddr()->pstSysRecord[i].enPriInd)
+        {
+            usPriLvl++;
+        }
+    }
+
+    return VOS_TRUE;
+}
+
+
+VOS_UINT32 CNAS_XSD_RcvXsdMofiyPrlHeadInfoReq_PreProc(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    CNAS_XSD_XSD_MODIFY_PRL_HEAD_INFO_REQ_STRU             *pstModifyReq   = VOS_NULL_PTR;
+    CNAS_PRL_HEADER_INFO_STRU                              *pstPrlHeadInfo = VOS_NULL_PTR;
+
+    pstModifyReq = (CNAS_XSD_XSD_MODIFY_PRL_HEAD_INFO_REQ_STRU *)pstMsg;
+
+    pstPrlHeadInfo = CNAS_PRL_GetPrlHeaderInfoAddr();
+
+    pstPrlHeadInfo->ucPreferOnly = pstModifyReq->ucPreferOnly;
+    pstPrlHeadInfo->enDefRoamInd = pstModifyReq->enDefRoamInd;
+
+    return VOS_TRUE;
+}
+
+
+
+VOS_UINT32 CNAS_XSD_RcvXsdMofiyOocScanIntervalReq_PreProc(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    CNAS_XSD_XSD_MODIFY_OOC_SCAN_INTERVAL_REQ_STRU         *pstModifyReq        = VOS_NULL_PTR;
+    CNAS_XSD_OOC_SCHEDULE_INFO_STRU                        *pstOocScheduleInfo  = VOS_NULL_PTR;
+
+    pstModifyReq        = (CNAS_XSD_XSD_MODIFY_OOC_SCAN_INTERVAL_REQ_STRU *)pstMsg;
+
+    pstOocScheduleInfo  = CNAS_XSD_GetOocScheduleInfo();
+
+
+    NAS_MEM_CPY_S(&(pstOocScheduleInfo->stStrategyCfg),
+                  sizeof(pstOocScheduleInfo->stStrategyCfg),
+                  &(pstModifyReq->stOocCfgInfo),
+                  sizeof(CNAS_XSD_OOS_SYS_ACQ_STRTEGY_CFG_STRU));
+
+    return VOS_TRUE;
+}
+
+
+#endif
+
+
+VOS_UINT32 CNAS_XSD_RcvMsccMoCallStartNtf_PreProc(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    CNAS_PRL_1X_SYSTEM_STRU                *pstOrignalSys      = VOS_NULL_PTR;
+    MSCC_XSD_MO_CALL_START_NTF_STRU        *pstCallStartNtfMsg = VOS_NULL_PTR;
+    CNAS_XSD_CALL_EXIST_FLAG_ENUM_UINT8     enCallExistFlg;
+
+    pstCallStartNtfMsg =  (MSCC_XSD_MO_CALL_START_NTF_STRU*)pstMsg;
+
+    enCallExistFlg = CNAS_XSD_TransferMsccCallTypeToXsdFormat(pstCallStartNtfMsg->enCallType);
+
+    /* 异常处理 */
+    if (CNAS_XSD_CALL_EXIST_NULL_FLAG == enCallExistFlg)
+    {
+        return VOS_TRUE;
+    }
+
+    if (CNAS_XSD_EMC_VOICE_CALL_EXIST_FLAG == enCallExistFlg)
+    {
+        /* 申请Session保护 */
+        CNAS_XSD_SndCasBeginSessionNotify(CNAS_CAS_1X_SESSION_TYPE_CS_CALL);
+
+        /* 紧急呼构表 */
+        CNAS_XSD_BuildEmcCallRedialScanChanList();
+
+        /* 记录当前MRU LIST，用于紧急呼叫重拨计数*/
+        CNAS_XSD_BuildEmcRedialMruList();
+
+        return VOS_TRUE;
+    }
+
+    /* 新建呼叫重拨搜网频点列表 */
+    if (CNAS_XSD_CALL_EXIST_NULL_FLAG == CNAS_XSD_GetCallExistFlg())
+    {
+        CNAS_XSD_BuildCallRedialScanChanList(CNAS_XSD_GetCurCampedSysInfo());
+    }
+
+    CNAS_XSD_SetCallExistFlg(enCallExistFlg);
+
+    if (VOS_TRUE == CNAS_XSD_GetSystemCampOnFlag())
+    {
+        /* 如果是驻留状态,保存当前驻留系统 */
+        pstOrignalSys = &(CNAS_XSD_GetXsdCtxAddr()->stSysAcqCtrl.stCurCampedSysInfo.stSystem);
+
+        CNAS_XSD_SaveCallOrignalSys(pstOrignalSys);
+
+        CNAS_XSD_SetCallOrigSysExistFlg(VOS_TRUE);
+    }
+    else
+    {
+        /* 记录标记呼叫开始时无驻留系统 */
+        CNAS_XSD_SetCallOrigSysExistFlg(VOS_FALSE);
+    }
+
+    return VOS_TRUE;
+}
+
+
+VOS_UINT32 CNAS_XSD_RcvMsccMoCallEndNtf_PreProc(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    MSCC_XSD_1X_MO_CALL_END_NTF_STRU           *pstCallEndNtfMsg = VOS_NULL_PTR;
+    CNAS_XSD_CALL_EXIST_FLAG_ENUM_UINT8         enCallExistFlg;
+    CNAS_XSD_FSM_CTX_STRU                      *pstCurFsm        = VOS_NULL_PTR;
+
+    pstCallEndNtfMsg = (MSCC_XSD_1X_MO_CALL_END_NTF_STRU*)pstMsg;
+
+    enCallExistFlg = CNAS_XSD_TransferMsccCallTypeToXsdFormat(pstCallEndNtfMsg->enCallType);
+    pstCurFsm                                   = CNAS_XSD_GetCurFsmAddr();
+
+    if ((CNAS_XSD_NORMAL_VOICE_CALL_EXIST_FLAG == enCallExistFlg)
+     || (CNAS_XSD_NORMAL_DATA_CALL_EXIST_FLAG  == enCallExistFlg))
+    {
+        /* 清除呼叫标记 */
+        CNAS_XSD_ClearCallExistFlg(enCallExistFlg);
+
+        if (CNAS_XSD_CALL_EXIST_NULL_FLAG == CNAS_XSD_GetCallExistFlg())
+        {
+            /* 清空呼叫重拨搜网频点列表 */
+            CNAS_XSD_ClearCallRedialScanChanList();
+        }
+
+        return VOS_TRUE;
+    }
+
+    if (CNAS_XSD_EMC_VOICE_CALL_EXIST_FLAG == enCallExistFlg)
+    {
+        /* 清空紧急呼重拨搜网控制信息*/
+        CNAS_XSD_ClearEmcRedialSysAcqCfgInfo();
+
+        /* 紧急呼未接通收到Call End */
+        if (VOS_NULL_PTR != CNAS_XSD_GetEmcCallRedialScanChanListAddr()->pstScanChanInfo)
+        {
+            /* 释放资源保护 */
+            CNAS_XSD_SndCasEndSessionNotify(CNAS_CAS_1X_SESSION_TYPE_CS_CALL);
+
+            /* 清空紧急呼搜网的频点扫描列表 */
+            CNAS_XSD_ClearEmcCallRedialScanChanList();
+
+            return VOS_FALSE;
+        }
+
+        /* 当前处于层1状态机的INITIAL态，说明是缓存消息的处理，进入状态机处理缓存 */
+        if ((CNAS_XSD_FSM_L1_MAIN       == pstCurFsm->enFsmId)
+         && (CNAS_XSD_L1_STA_INITIAL    == pstCurFsm->ulState))
+        {
+            return VOS_FALSE;
+        }
+
+        /* 释放资源保护 */
+        CNAS_XSD_SndCasEndSessionNotify(CNAS_CAS_1X_SESSION_TYPE_CS_CALL);
+
+        /* NV设置成不支持CALL BACK */
+        if (VOS_FALSE == CNAS_XSD_GetCallBackCfg()->ulCallBackEnableFlg)
+        {
+            return VOS_TRUE;
+        }
+
+        /* 进入CallBack模式 */
+        CNAS_XSD_SetEmcState(CNAS_XSD_EMC_STATE_CALLBACK);
+
+        CNAS_CCB_SetEmcCbState(CNAS_CCB_EMC_CB_STATE_CALLBACK);
+
+        /* 上报进入CALLBACK模式NTF */
+        CNAS_XSD_SndMsccEmcCallBackInd(NAS_MSCC_PIF_EMC_CALLBACK_MODE_ENABLE);
+
+        /* 启动CALLBACK保护定时器 */
+        CNAS_XSD_StartTimer(TI_CNAS_XSD_EMC_CALLBACK_MODE_PROTECT_TIMER, CNAS_XSD_GetCallBackCfg()->ulCallBackModeTimerLen);
+
+        CNAS_XSD_LogCallBackStatusInd(ID_CNAS_XSD_MNTN_LOG_ENTER_CALLBACK_IND);
+
+        return VOS_FALSE;
+    }
+
+    return VOS_TRUE;
+}
+
+
+VOS_UINT32 CNAS_XSD_RcvMsccMoCallSuccessNtf_PreProc(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    MSCC_XSD_MO_CALL_SUCCESS_NTF_STRU  *pstCallSuccessNtfMsg = VOS_NULL_PTR;
+    CNAS_XSD_CALL_EXIST_FLAG_ENUM_UINT8 enCallExistFlg;
+
+    pstCallSuccessNtfMsg = (MSCC_XSD_MO_CALL_SUCCESS_NTF_STRU*)pstMsg;
+
+    enCallExistFlg = CNAS_XSD_TransferMsccCallTypeToXsdFormat(pstCallSuccessNtfMsg->enCallType);
+
+    /* 异常处理 */
+    if (CNAS_XSD_CALL_EXIST_NULL_FLAG == enCallExistFlg)
+    {
+        return VOS_TRUE;
+    }
+
+    if (CNAS_XSD_EMC_VOICE_CALL_EXIST_FLAG == enCallExistFlg)
+    {
+        /* 清空紧急呼重拨搜网的频点列表 */
+        CNAS_XSD_ClearEmcCallRedialScanChanList();
+
+        /* 保存建立成功的系统 */
+        CNAS_XSD_SaveEmcCallOriginalSys(&(CNAS_XSD_GetCurCampedSysInfo()->stSystem));
+
+        return VOS_TRUE;
+    }
+
+    /* 普通语音或数据呼:清除呼叫标记 */
+    CNAS_XSD_ClearCallExistFlg(enCallExistFlg);
+
+    if (CNAS_XSD_CALL_EXIST_NULL_FLAG == CNAS_XSD_GetCallExistFlg())
+    {
+        /* 清空呼叫重拨搜网频点列表 */
+        CNAS_XSD_ClearCallRedialScanChanList();
+
+        /* 清空紧急呼重拨搜网控制信息*/
+        CNAS_XSD_ClearEmcRedialSysAcqCfgInfo();
+    }
+
+    return VOS_TRUE;
+}
+
+
+
+
+VOS_UINT32 CNAS_XSD_RcvMsccCFreqLockSetNtf_PreProc(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    MSCC_XSD_CFREQ_LOCK_NTF_STRU       *pstCFreqLockNtf         = VOS_NULL_PTR;
+    CNAS_XSD_CFREQ_LOCK_SET_PARA_STRU  *pstCFreqLockSetPara     = VOS_NULL_PTR;
+    CNAX_XSD_CAMPED_SYS_INFO_STRU      *pstXsdCampedSysInfo     = VOS_NULL_PTR;
+
+    pstCFreqLockNtf = (MSCC_XSD_CFREQ_LOCK_NTF_STRU *)pstMsg;
+
+    /* 发送给CAS */
+    if (VOS_TRUE != CNAS_XSD_SndCasCFreqLockNtf(pstCFreqLockNtf))
+    {
+        return VOS_TRUE;
+    }
+
+    pstCFreqLockSetPara                  = CNAS_XSD_GetFreqLockAddr();
+
+    pstCFreqLockSetPara->ucFreqLockMode  = pstCFreqLockNtf->enFreqLockMode;
+    pstCFreqLockSetPara->usCdmaBandClass = pstCFreqLockNtf->usCdmaBandClass;
+    pstCFreqLockSetPara->usSid           = pstCFreqLockNtf->usSid;
+    pstCFreqLockSetPara->usNid           = pstCFreqLockNtf->usNid;
+    pstCFreqLockSetPara->usCdmaFreq      = pstCFreqLockNtf->usCdmaFreq;
+    pstCFreqLockSetPara->usCdmaPn        = pstCFreqLockNtf->usCdmaPn;
+
+    /* 当前sysCfg不支持1x，则不执行搜网 */
+    if (VOS_FALSE == pstCFreqLockNtf->ulIsSupport1x)
+    {
+        return VOS_TRUE;
+    }
+
+    pstXsdCampedSysInfo = CNAS_XSD_GetCurCampedSysInfo();
+
+    if (NAS_MSCC_PIF_CFREQ_LOCK_SET_MODE_ENABLE == pstCFreqLockNtf->enFreqLockMode)
+    {
+        /* 当前驻留系统的参数与即将锁频参数相同时，不触发搜网 */
+        if ((VOS_TRUE == pstXsdCampedSysInfo->ucCampOnFlag)
+         && (pstXsdCampedSysInfo->stSystem.stFreq.usChannel   == pstCFreqLockSetPara->usCdmaFreq)
+         && (pstXsdCampedSysInfo->stSystem.stFreq.enBandClass == pstCFreqLockSetPara->usCdmaBandClass))
+        {
+            if (VOS_TRUE == CNAS_PRL_Is1xSysIdMatched(pstXsdCampedSysInfo->stSystem.usSid, pstXsdCampedSysInfo->stSystem.usNid,
+                                                      pstCFreqLockSetPara->usSid, pstCFreqLockSetPara->usNid))
+            {
+                return VOS_TRUE;
+            }
+        }
+
+        /* IDLE状态下触发搜网 */
+        CNAS_XSD_SndInternalSysAcqReq(CNAS_XSD_SYS_ACQ_SCENE_CFREQ_LOCK, 0, VOS_NULL_PTR);
+    }
+
+    return VOS_FALSE;
+}
+
+
+VOS_UINT32 CNAS_XSD_RcvMsccCdmaCsqSetReq_PreProc(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    MSCC_XSD_CDMACSQ_SET_REQ_STRU         *pstCdmaCsqReq = VOS_NULL_PTR;
+
+    pstCdmaCsqReq = (MSCC_XSD_CDMACSQ_SET_REQ_STRU *)pstMsg;
+
+    /* 发送给CAS */
+    if (VOS_TRUE != CNAS_XSD_SndCasCdmaCsqSetReq(pstCdmaCsqReq->stCdmaCsq.ucRssiRptThreshold,
+                                                 pstCdmaCsqReq->stCdmaCsq.ucEcIoRptThreshold,
+                                                 pstCdmaCsqReq->stCdmaCsq.ucTimeInterval))
+    {
+        CNAS_XSD_SndCdmaCsqSetCnf(NAS_MSCC_PIF_CDMACSQ_SET_RESULT_FAIL);
+    }
+
+    return VOS_TRUE;
+}
+
+
+VOS_UINT32 CNAS_XSD_RcvCasCdmaCsqSetCnf_PreProc(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    CAS_CNAS_1X_SET_SIGNAL_QUALITY_CNF_STRU                *pstCdmaCsqCnf = VOS_NULL_PTR;
+
+    pstCdmaCsqCnf = (CAS_CNAS_1X_SET_SIGNAL_QUALITY_CNF_STRU *)pstMsg;
+
+    if (CAS_CNAS_1X_SIGNAL_QUALITY_CNF_RSLT_SUCCESS == pstCdmaCsqCnf->enRslt)
+    {
+        CNAS_XSD_SndCdmaCsqSetCnf(NAS_MSCC_PIF_CDMACSQ_SET_RESULT_SUCC);
+    }
+    else
+    {
+        CNAS_XSD_SndCdmaCsqSetCnf(NAS_MSCC_PIF_CDMACSQ_SET_RESULT_FAIL);
+    }
+
+    return VOS_TRUE;
+}
+
+
+VOS_UINT32 CNAS_XSD_RcvCasCdmaCsqInd_PreProc(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    CAS_CNAS_1X_SIGNAL_QUALITY_IND_STRU  *pstCdmaCsqInd = VOS_NULL_PTR;
+
+    pstCdmaCsqInd = (CAS_CNAS_1X_SIGNAL_QUALITY_IND_STRU  *)pstMsg;
+
+    CNAS_XSD_SndCdmaCsqInd(pstCdmaCsqInd->sCdmaRssi, pstCdmaCsqInd->sCdmaEcIo);
+
+    return VOS_TRUE;
+
+}
+#if 0
+
+VOS_UINT32 CNAS_XSD_RcvCasNegativeSystemQueryInd_PreProc(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    CAS_CNAS_1X_NEGATIVE_SYSTEM_QUERY_IND_STRU             *pstQueryInd     = VOS_NULL_PTR;
+    CNAS_PRL_ACQ_REC_FREQ_INFO_STRU                         stNegativeFreqList;
+    CNAS_PRL_ACQ_REC_FREQ_INFO_STRU                         stSrcFreqInfo;
+    CNAS_PRL_ACQ_REC_FREQ_INFO_STRU                         stDstFreqInfo;
+    CNAS_PRL_1X_SYSTEM_ID_STRU                              stSysId;
+    VOS_UINT32                                              i;
+
+    pstQueryInd = (CAS_CNAS_1X_NEGATIVE_SYSTEM_QUERY_IND_STRU *)pstMsg;
+
+    NAS_MEM_SET_S(&stNegativeFreqList, 0x0, sizeof(stNegativeFreqList));
+    NAS_MEM_SET_S(&stSysId, 0x0, sizeof(stSysId));
+    NAS_MEM_SET_S(&stSrcFreqInfo, 0x0, sizeof(stSrcFreqInfo));
+    NAS_MEM_SET_S(&stDstFreqInfo, 0x0, sizeof(stDstFreqInfo));
+
+    stSysId.usSid = pstQueryInd->stCurrSysId.usSid;
+    stSysId.usNid = pstQueryInd->stCurrSysId.usNid;
+
+    for (i = 0; i < pstQueryInd->ulFreqNum; i++)
+    {
+        stSrcFreqInfo.astFreqInfo[i].enBandClass = pstQueryInd->astFreqList[i].usBandClass;
+        stSrcFreqInfo.astFreqInfo[i].usChannel   = pstQueryInd->astFreqList[i].usChannel;
+    }
+    stSrcFreqInfo.ulNum = pstQueryInd->ulFreqNum;
+
+    /* 这里不做band能力支持检查，由CAS负责检查 */
+
+    /* filter out negative freqs */
+    CNAS_XSD_RemoveNegativeFreqs(&stSysId, &stSrcFreqInfo, &stDstFreqInfo);
+
+    for (i = 0; i < stSrcFreqInfo.ulNum; i++)
+    {
+        if (VOS_FALSE == CNAS_XSD_IsChannelInChannelList(&stSrcFreqInfo.astFreqInfo[i],
+                                                          (VOS_UINT16)stDstFreqInfo.ulNum,
+                                                          &(stDstFreqInfo.astFreqInfo[0])))
+        {
+            stNegativeFreqList.astFreqInfo[stNegativeFreqList.ulNum] = stSrcFreqInfo.astFreqInfo[i];
+
+            (stNegativeFreqList.ulNum)++;
+        }
+    }
+
+    CNAS_XSD_SndCasNegativeSystemQueryRsp(&pstQueryInd->stCurrSysId, &stNegativeFreqList);
+
+    return VOS_TRUE;
+}
+#endif
+
+VOS_UINT32 CNAS_XSD_RcvCas1xSyncTimeInd_PreProc(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    CAS_CNAS_1X_SYNC_TIME_IND_STRU      *pstSyncTimeInd = VOS_NULL_PTR;
+    NAS_MSCC_PIF_1X_SYS_TIME_STRU        st1xSysTime;
+
+    pstSyncTimeInd = (CAS_CNAS_1X_SYNC_TIME_IND_STRU *)pstMsg;
+
+    NAS_MEM_CPY_S(st1xSysTime.aucSysTime,
+                  sizeof(st1xSysTime.aucSysTime),
+                  pstSyncTimeInd->stSysTime.aucSysTime,
+                  sizeof(pstSyncTimeInd->stSysTime.aucSysTime));
+    st1xSysTime.ucLpSec = pstSyncTimeInd->stSysTime.ucLpSec;
+    st1xSysTime.cLtmOff = pstSyncTimeInd->stSysTime.cLtmOff;
+    st1xSysTime.ucDaylt = pstSyncTimeInd->stSysTime.ucDaylt;
+
+    CNAS_XSD_SndMscc1xSysTimeInd(&st1xSysTime);
+
+    return VOS_TRUE;
+}
+
+
+VOS_UINT32 CNAS_XSD_RcvMsccSysCfgReq_PreProc(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    MSCC_XSD_SYS_CFG_REQ_STRU          *pstSysReq = VOS_NULL_PTR;
+
+    pstSysReq = (MSCC_XSD_SYS_CFG_REQ_STRU *)pstMsg;
+
+    /* 在CCB中存储syscfg信息 */
+    CNAS_CCB_SetCurMsSysCfg(pstSysReq->ucSuppRatNum, pstSysReq->aenRatMode);
+
+    /* 发送给CAS */
+    CNAS_XSD_SndCasSysCfgReq(pstSysReq);
+
+    return VOS_TRUE;
+}
+
+
+VOS_UINT32 CNAS_XSD_RcvCas1xSysCfgCnf_PreProc(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    CAS_CNAS_1X_SYS_CFG_CNF_STRU       *pstSysCnf = VOS_NULL_PTR;
+
+    pstSysCnf = (CAS_CNAS_1X_SYS_CFG_CNF_STRU *)pstMsg;
+
+    /* 发送给CAS */
+    CNAS_XSD_SndMsccSysCfgCnf(pstSysCnf);
+
+    return VOS_TRUE;
+}
+
+
+
+VOS_UINT32 CNAS_XSD_RcvMsccHandsetInfoQry_PreProc(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    MSCC_XSD_HANDSET_INFO_QRY_STRU     *pstInfoMsg = VOS_NULL_PTR;
+
+    pstInfoMsg = (MSCC_XSD_HANDSET_INFO_QRY_STRU *)pstMsg;
+
+    CNAS_HandsetInfoQry_Proc((VOS_UINT32)pstInfoMsg->ulInfoType);
+
+    return VOS_TRUE;
+}
+
+
+VOS_UINT32 CNAS_XSD_RcvCas1xEnterRelSubStateReasonInd_PreProc(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    CAS_CNAS_1X_ENTER_RELEASE_SUBSTATE_REASON_IND_STRU     *pst1xEnterRelSubStateResonInd;
+
+    pst1xEnterRelSubStateResonInd = (CAS_CNAS_1X_ENTER_RELEASE_SUBSTATE_REASON_IND_STRU *)pstMsg;
+
+    /*  Ref to C.S0005-A_v6.0 2.6.4.4,following release subState should set the returnCause to 0x00(NORMAL_ACCESS)
+        1.mobile station enters the Release Substate with a mobile station release indication;
+        2.mobile station enters the Release Substate with a service inactive indication;
+        3.mobile station enters the Release Substate with a base station release indication;
+        4.mobile station enters the Release Substate with a base station extended release indication;
+        5.mobile station enters the Release Substate with a base station extended release with mini message indication;
+    */
+
+    switch (pst1xEnterRelSubStateResonInd->enReason)
+    {
+        case CAS_CNAS_1X_ENTER_RELEASE_SUBSTATE_REASON_MS_RELEASE_INDICATION :
+        case CAS_CNAS_1X_ENTER_RELEASE_SUBSTATE_REASON_SERVICE_INACTIVE_INDICATION :
+        case CAS_CNAS_1X_ENTER_RELEASE_SUBSTATE_REASON_BS_RELEASE_INDICATION :
+        case CAS_CNAS_1X_ENTER_RELEASE_SUBSTATE_REASON_BS_EXTEND_RELEASE_INDICATION :
+        case CAS_CNAS_1X_ENTER_RELEASE_SUBSTATE_REASON_BS_EXTEND_RELEASE_WITH_MINI_INDICATION :
+             CNAS_CCB_Set1xReturnCause(CNAS_CCB_1X_RETURN_CAUSE_NORMAL_ACCESS);
+             break;
+
+        default:
+             CNAS_WARNING_LOG(UEPS_PID_XSD, "CNAS_XSD_RcvCas1xEnterRelSubStateReasonInd_PreProc: unknown release substate reason!");
+             break;
+    }
+
+    return VOS_TRUE;
+}
+
+
+VOS_UINT32 CNAS_XSD_RcvRrmStatusInd_PreProc(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    /* 向RRM发送去注册消息 */
+    CNAS_XSD_DeRegisterRrmResourceNtf(RRM_PS_TASK_TYPE_1X_NETWORK_SEARCH);
+
+    return VOS_FALSE;
+}
+
+
+VOS_UINT32 CNAS_XSD_RcvMsccSrvAcqReq_PreProc(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    /* Srv Acq打断处理 */
+    CNAS_XSD_SetSrvAcqFlg(VOS_TRUE);
+
+    /* 打断消息二次进入预处理，直接进入状态机处理 */
+    if (VOS_NULL_PTR != CNAS_XSD_GetEmcCallRedialScanChanListAddr()->pstScanChanInfo)
+    {
+        return VOS_FALSE;
+    }
+
+    if (VOS_TRUE == CNAS_XSD_GetSystemCampOnFlag())
+    {
+        CNAS_XSD_SndMsccSrvAcqCnf(NAS_MSCC_PIF_SRV_ACQ_RESULT_SUCCESS);
+
+        CNAS_XSD_SetSrvAcqFlg(VOS_FALSE);
+
+        return VOS_TRUE;
+    }
+
+    return VOS_FALSE;
+}
+
+
+VOS_UINT32 CNAS_XSD_RcvMsccBeginSessionNotify_PreProc(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    CNAS_CAS_1X_SESSION_TYPE_ENUM_UINT16                    enSessionType;
+
+    enSessionType = CNAS_XSD_ConvertSrvTypeToSessionType(((MSCC_XSD_BEGIN_SESSION_NOTIFY_STRU *)pstMsg)->enSrvType);
+
+    /* 向CAS发送资源申请请求 */
+    CNAS_XSD_SndCasBeginSessionNotify(enSessionType);
+
+    return VOS_TRUE;
+}
+
+
+VOS_UINT32 CNAS_XSD_RcvMsccEndSessionNotify_PreProc(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    CNAS_CAS_1X_SESSION_TYPE_ENUM_UINT16                    enSessionType;
+
+    enSessionType = CNAS_XSD_ConvertSrvTypeToSessionType(((MSCC_XSD_END_SESSION_NOTIFY_STRU *)pstMsg)->enSrvType);
+
+    /* 向CAS发送资源释放请求 */
+    CNAS_XSD_SndCasEndSessionNotify(enSessionType);
+
+    return VOS_TRUE;
+}
+
+
+VOS_UINT32 CNAS_XSD_RcvMsccCallRedialSystemAcquireNtf_PreProc(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    MSCC_XSD_CALL_REDIAL_SYSTEM_ACQUIRE_NTF_STRU           *pstCallRedialSysAcqNtf = VOS_NULL_PTR;
+
+    pstCallRedialSysAcqNtf                                  = (MSCC_XSD_CALL_REDIAL_SYSTEM_ACQUIRE_NTF_STRU *)pstMsg;
+
+    if ((NAS_MSCC_PIF_CDMA_CALL_TYPE_1X_EMC_VOICE_CALL      == pstCallRedialSysAcqNtf->enCallType)
+     || (NAS_MSCC_PIF_CDMA_CALL_TYPE_1X_NORMAL_VOICE_CALL   == pstCallRedialSysAcqNtf->enCallType))
+    {
+        return VOS_FALSE;
+    }
+
+    if (NAS_MSCC_PIF_CDMA_CALL_TYPE_1X_NORMAL_DATA_CALL     == pstCallRedialSysAcqNtf->enCallType)
+    {
+        /* CallBack流程中不处理普通数据呼的重拨 */
+        if (CNAS_XSD_EMC_STATE_CALLBACK                     == CNAS_XSD_GetEmcState())
+        {
+            return VOS_TRUE;
+        }
+
+        return VOS_FALSE;
+    }
+
+    /* 其他消息不进入状态机处理 */
+    return VOS_TRUE;
+}
+
+
+VOS_UINT32 CNAS_XSD_RcvMsccEndCallBackNtf_PreProc(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    /* 若当前不处于CALLBACK模式，做异常处理 */
+    if (CNAS_XSD_EMC_STATE_CALLBACK != CNAS_XSD_GetEmcState())
+    {
+        return VOS_TRUE;
+    }
+
+    return VOS_FALSE;
+}
+
+
+VOS_UINT32 CNAS_XSD_RcvTiCallBackModeTimerExpired_PreProc(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    /* 若当前不处于CALLBACK模式，做异常处理 */
+    if (CNAS_XSD_EMC_STATE_CALLBACK != CNAS_XSD_GetEmcState())
+    {
+        return VOS_TRUE;
+    }
+
+    return VOS_FALSE;
+}
+
+
+VOS_UINT32 CNAS_XSD_RcvTiCallBackSrchTimerExpired_PreProc(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    /* 若当前不处于CALLBACK模式，做异常处理 */
+    if (CNAS_XSD_EMC_STATE_CALLBACK != CNAS_XSD_GetEmcState())
+    {
+        return VOS_TRUE;
+    }
+
+    return VOS_FALSE;
+}
+
+
+VOS_UINT32 CNAS_XSD_RcvMsccCSidListReq_PreProc(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    MSCC_XSD_SET_CSIDLIST_REQ_STRU                         *pstOperLockSysWhite     = VOS_NULL_PTR;
+    CNAS_CCB_OPER_LOCK_SYS_WHITE_LIST_STRU                 *pstOperLockSysWhiteList = VOS_NULL_PTR;
+    VOS_UINT32                                              i;
+
+    pstOperLockSysWhite                 = (MSCC_XSD_SET_CSIDLIST_REQ_STRU *)pstMsg;
+
+    /* NV写入成功 */
+    if (VOS_TRUE == CNAS_XSD_WriteOperLockWhiteSidListInfoNvim((MSCC_XSD_OPER_LOCK_SYS_WHITE_STRU *)(&pstOperLockSysWhite->stSidWhiteList)))
+    {
+        /* 存储到全局变量 */
+        pstOperLockSysWhiteList                = CNAS_CCB_GetOperLockSysWhiteList();
+        pstOperLockSysWhiteList->ucEnable      = pstOperLockSysWhite->stSidWhiteList.ucEnable;
+        pstOperLockSysWhiteList->usWhiteSysNum = CNAS_MIN(pstOperLockSysWhite->stSidWhiteList.usWhiteSysNum, CNAS_CCB_MAX_WHITE_LOCK_SYS_NUM);
+
+        for (i = 0; i < pstOperLockSysWhiteList->usWhiteSysNum;i++ )
+        {
+            pstOperLockSysWhiteList->astSysInfo[i].usStartSid = pstOperLockSysWhite->stSidWhiteList.astSysInfo[i].usStartSid;
+            pstOperLockSysWhiteList->astSysInfo[i].usEndSid   = pstOperLockSysWhite->stSidWhiteList.astSysInfo[i].usEndSid;
+            pstOperLockSysWhiteList->astSysInfo[i].ulMcc      = pstOperLockSysWhite->stSidWhiteList.astSysInfo[i].ulMcc;
+        }
+
+        CNAS_XSD_LogOperLockSysWhiteList(pstOperLockSysWhiteList);
+
+        /* 上报MSCC设置成功 */
+        CNAS_XSD_SndMsccSetCSidListCnf(VOS_TRUE);
+
+        return VOS_TRUE;
+    }
+
+    /* 上报MSCC设置失败 */
+    CNAS_XSD_SndMsccSetCSidListCnf(VOS_FALSE);
+
+    return VOS_TRUE;
+}
+
+
+
+VOS_UINT32 CNAS_XSD_RcvMsccNormalServiceInd_PreProc(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+#ifndef DMT
+    VOS_UINT32                                              ulMcc;
+    VOS_UINT32                                              ulRatMode;
+    MSCC_XSD_NORMAL_SERVICE_IND_STRU                       *pstMsccNormalServcieInd = VOS_NULL_PTR;
+
+    pstMsccNormalServcieInd  = (MSCC_XSD_NORMAL_SERVICE_IND_STRU *)pstMsg;
+
+    ulMcc                    = pstMsccNormalServcieInd->ulMcc;
+    ulRatMode                = pstMsccNormalServcieInd->ulRatMode;
+
+    CNAS_XSD_SndXregNormalServiceInd(ulMcc, ulRatMode);
+#endif
+
+    return VOS_TRUE;
+}
+
+
+NAS_MSCC_PIF_1X_SERVICE_TYPE_ENUM_UINT8 CNAS_XSD_GetCurrHighPriorityServiceType_PreProc(VOS_VOID)
+{
+    /***********************************************************************************************
+     * 优先级等级: VOICE/LOOPBACK > SMS > AGPS/PS
+    ***********************************************************************************************/
+    /* 如果业务类型为语音，返回语音业务; 如果业务类型为LOOPBACK，按语音业务类型返回 */
+    if ((CNAS_CCB_1X_CALL_STATE_IDLE != CNAS_CCB_GetCcbCtxAddr()->ast1xCallState[0].en1xCallState)
+     || (CNAS_CCB_1X_CALL_STATE_IDLE != CNAS_CCB_GetCcbCtxAddr()->ast1xCallState[3].en1xCallState))
+    {
+        return NAS_MSCC_PIF_1X_SERVICE_TYPE_VOICE;
+    }
+
+    /* 检查SMS的1X呼叫状态 */
+    if (CNAS_CCB_1X_CALL_STATE_IDLE != CNAS_CCB_GetCcbCtxAddr()->ast1xCallState[1].en1xCallState)
+    {
+        /* 短信业务存在时，如果有数据业务存在，短信是借用数据业务信道的发送，所以返回数据业务类型 */
+        if ((CNAS_CCB_1X_CALL_STATE_IDLE != CNAS_CCB_GetCcbCtxAddr()->ast1xCallState[2].en1xCallState)
+         || (CNAS_CCB_1X_CALL_STATE_IDLE != CNAS_CCB_GetCcbCtxAddr()->ast1xCallState[4].en1xCallState))
+        {
+            return NAS_MSCC_PIF_1X_SERVICE_TYPE_PS;
+        }
+
+        return NAS_MSCC_PIF_1X_SERVICE_TYPE_SMS;
+    }
+
+    /* 如果为PS或AGPS，按PS业务类型返回 */
+    if ((CNAS_CCB_1X_CALL_STATE_IDLE != CNAS_CCB_GetCcbCtxAddr()->ast1xCallState[2].en1xCallState)
+     || (CNAS_CCB_1X_CALL_STATE_IDLE != CNAS_CCB_GetCcbCtxAddr()->ast1xCallState[4].en1xCallState))
+    {
+        return NAS_MSCC_PIF_1X_SERVICE_TYPE_PS;
+    }
+
+    return NAS_MSCC_PIF_1X_SERVICE_TYPE_BUTT;
+}
+
+
+VOS_UINT32 CNAS_XSD_RcvCasStateInd_PreProc(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    CAS_CNAS_1X_CAS_STATE_IND_STRU     *pstStateInd;
+
+    pstStateInd = (CAS_CNAS_1X_CAS_STATE_IND_STRU*)pstMsg;
+
+    /* 进入tch态，清空avoid频点信息*/
+    if (CAS_CNAS_1X_CAS_TCH_STATE == pstStateInd->enCasState)
+    {
+        CNAS_XSD_ClearAccessSuccessFreqFormAvoidList();
+    }
+
+    CNAS_CCB_SetCasState((CNAS_CCB_1X_CAS_STATE_ENUM_UINT8)pstStateInd->enCasState);
+
+    /* UE 状态发送給XREG*/
+    CNAS_XSD_SndXregUeStateInd(pstStateInd->enCasState,
+                               pstStateInd->enCasSubState);
+
+    /* UE 状态发送給MSCC*/
+    CNAS_XSD_SndMsccUeStatusInd((NAS_MSCC_PIF_1X_CAS_MAIN_STATE_ENUM_UINT8)pstStateInd->enCasState,
+                                (CAS_CNAS_1X_CAS_SUB_STATE_ENUM_UINT8)pstStateInd->enCasSubState,
+                                CNAS_XSD_GetCurrHighPriorityServiceType_PreProc());
+    return VOS_TRUE;
+}
+
+
+
+VOS_UINT32 CNAS_XSD_RcvCasAvailableCampQueryReq_PreProc(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    CAS_CNAS_1X_AVAILABLE_CAMP_QUERY_REQ_STRU              *pstQueryReq = VOS_NULL_PTR;
+    CNAS_PRL_1X_SYSTEM_STRU                                 stCurSysInfo;
+    PS_BOOL_ENUM_UINT8                                      enIsCurSysCanCamp;
+
+    pstQueryReq = (CAS_CNAS_1X_AVAILABLE_CAMP_QUERY_REQ_STRU*)pstMsg;
+
+    NAS_MEM_SET_S(&stCurSysInfo, sizeof(stCurSysInfo), 0x00, sizeof(stCurSysInfo));
+    stCurSysInfo.stFreq.enBandClass = (CNAS_PRL_BAND_CLASS_ENUM_UINT16)pstQueryReq->usBandClass;
+    stCurSysInfo.stFreq.usChannel   = pstQueryReq->usFreq;
+    stCurSysInfo.usSid              = pstQueryReq->usSid;
+    stCurSysInfo.usNid              = pstQueryReq->usNid;
+
+    /* 该函数返回VOS_TRUE，表示不可以驻留 */
+    if (VOS_TRUE == CNAS_XSD_IsCurSysNotSuitableSys(&stCurSysInfo, VOS_FALSE, 0))
+    {
+        /* 接口定义0表示可以驻留，其他值表示不能驻留，与内部接口正好相反 */
+        enIsCurSysCanCamp = PS_FALSE;
+    }
+    else
+    {
+        enIsCurSysCanCamp = PS_TRUE;
+    }
+
+    CNAS_XSD_SndCasAvailableCampQueryCnf(pstQueryReq->usOpId, enIsCurSysCanCamp);
+
+    return VOS_TRUE;
+}
+
+#if (FEATURE_PTM == FEATURE_ON)
+
+VOS_VOID CNAS_XSD_ErrLogReport1xOosSearchInfo(
+    OM_ERR_LOG_REPORT_REQ_STRU         *pstRcvOmErrLogReportReq
+)
+{
+    VOS_UINT32                                              ulLength;
+    NAS_ERR_LOG_1X_OOS_SEARCH_STRU                         *pst1xOosSearch          = VOS_NULL_PTR;
+    NAS_ERRLOG_CCB_1X_OOS_SEARCH_STRU                      *pstErrLogCcb1xOosSearch = VOS_NULL_PTR;
+
+    ulLength = sizeof(NAS_ERR_LOG_1X_OOS_SEARCH_STRU);
+
+    pst1xOosSearch = (NAS_ERR_LOG_1X_OOS_SEARCH_STRU *)PS_MEM_ALLOC(UEPS_PID_XSD, ulLength);
+    if (VOS_NULL_PTR == pst1xOosSearch)
+    {
+        CNAS_ERROR_LOG(UEPS_PID_XSD, "CNAS_XSD_ErrLogReport1xOosSearchInfo:Malloc Mem Fail.");
+        return;
+    }
+    NAS_MEM_SET_S(pst1xOosSearch, ulLength, 0x00, ulLength);
+
+    /* 获取需要上报的1x搜网记录 */
+    pstErrLogCcb1xOosSearch = NAS_ERRLOG_CCB_Get1xOosSearchCtxAddr();
+
+    /* 获取20条全部记录，即使可能并未存在记录 */
+    pst1xOosSearch->ulSearchRecordCnt = pstErrLogCcb1xOosSearch->ulSearchRecordCnt;
+
+    NAS_MEM_CPY_S(pst1xOosSearch->astSearchRecord,
+                  NAS_ERR_LOG_1X_OOS_MAX_SEARCH_RECORD * sizeof(NAS_ERR_LOG_1X_OOS_SEARCH_RECORD_STRU),
+                  pstErrLogCcb1xOosSearch->ast1xOosSearchRecord,
+                  NAS_ERR_LOG_1X_OOS_MAX_SEARCH_RECORD * sizeof(NAS_ERR_LOG_1X_OOS_SEARCH_RECORD_STRU));
+
+    /* 填充OM_ERR_LOG_HEADER_STRU stHeader */
+    CNAS_COMM_BULID_ERRLOG_HEADER_INFO(&(pst1xOosSearch->stHeader),
+                                       CNAS_CCB_GetCdmaModeModemId(),
+                                       NAS_ERR_LOG_ALM_1X_OOS_SEARCH,
+                                       NAS_GetErrLogAlmLevel(NAS_ERR_LOG_ALM_1X_OOS_SEARCH),
+                                       VOS_GetSlice(),
+                                       (ulLength - sizeof(OM_ERR_LOG_HEADER_STRU)));
+
+    /* 应答OM查询1x搜网信息 */
+    NAS_ERRLOG_CCB_SndAcpuOmFaultErrLogCnf(pst1xOosSearch,
+                                           ulLength,
+                                           pstRcvOmErrLogReportReq->ucFaultID,
+                                           (VOS_UINT8)NAS_ERR_LOG_ALM_1X_OOS_SEARCH,
+                                           UEPS_PID_XSD);
+
+    PS_MEM_FREE(UEPS_PID_XSD, pst1xOosSearch);
+
+    return;
+}
+
+
+VOS_UINT32 CNAS_XSD_RcvAcpuOmErrlogRptReq_PreProc(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    OM_ERR_LOG_REPORT_REQ_STRU         *pstRcvOmErrLogReportReq= VOS_NULL_PTR;
+
+    pstRcvOmErrLogReportReq = (OM_ERR_LOG_REPORT_REQ_STRU*)pstMsg;
+
+    if ((NAS_ERR_LOG_ALM_1X_OOS_SEARCH == pstRcvOmErrLogReportReq->ucAlarmID)
+     && (FAULT_ID_1X_OOS_RECOVERY == pstRcvOmErrLogReportReq->ucFaultID))
+    {
+        /* AlarmId和FaultId符合需要处理 */
+        CNAS_XSD_ErrLogReport1xOosSearchInfo(pstRcvOmErrLogReportReq);
+
+        /* 应答OM后清空1x搜网信息 */
+        NAS_ERRLOG_CCB_Init1xOosSearchCtx();
+    }
+
+    return VOS_TRUE;
+}
+#endif
+
+
+VOS_UINT32 CNAS_XSD_RcvXregRegSuccessInd_PreProc(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    CNAX_XSD_CAMPED_SYS_INFO_STRU      *pstCampedSysInfo = VOS_NULL_PTR;
+    CNAS_XSD_AVOID_FREQ_LIST_STRU      *pstAvoidFreqList = VOS_NULL_PTR;
+    VOS_UINT8                           ucIndex;
+
+    pstAvoidFreqList    = CNAS_XSD_GetAvoidFreqListAddr();
+
+    ucIndex             = 0;
+
+    pstCampedSysInfo = CNAS_XSD_GetCurCampedSysInfo();
+
+    if (VOS_TRUE == CNAS_XSD_GetAvoidFreqIndexOfAvoidlist(&(pstCampedSysInfo->stSystem.stFreq), &ucIndex))
+    {
+
+        CNAS_XSD_ClearAvoidCountFromAvoidList(ucIndex, CNAS_XSD_AVOID_REG_REJECTED);
+
+        if (VOS_TRUE == CNAS_XSD_IsClearFreqInfoOfAvoidList(ucIndex))
+        {
+            CNAS_XSD_ClearAvoidFreqInfoOfAvoidList(ucIndex);
+
+            /*如果avoid列表中不存在禁用标记，表示没有被禁用的频点，停止定时器 */
+            if (VOS_FALSE == CNAS_XSD_IsExistAvoidFlagInAvoidlist())
+            {
+                CNAS_XSD_StopTimer(TI_CNAS_XSD_SLICE_REVERSE_PROTECT_TIMER);
+            }
+        }
+
+        CNAS_XSD_LogAvoidFreqList(pstAvoidFreqList);
+    }
+
+    return VOS_TRUE;
+}
+
+VOS_UINT32 CNAS_XSD_RcvMsccLteHrpdConnInfo_PreProc(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    MSCC_XSD_LTE_HRPD_CONN_INFO_IND_STRU                   *pstRcvMsg;
+
+    CNAS_XSD_L1_STA_ENUM_UINT32                             enXsdState;
+
+    enXsdState = CNAS_XSD_GetCurFsmAddr()->ulState;
+
+    pstRcvMsg = (MSCC_XSD_LTE_HRPD_CONN_INFO_IND_STRU*)pstMsg;
+
+    if ((CNAS_XSD_FSM_L1_MAIN       == CNAS_XSD_GetCurrFsmId())
+     && ((CNAS_XSD_L1_STA_NULL      == enXsdState)
+      || (CNAS_XSD_L1_STA_DEACTIVE  == enXsdState)))
+    {
+        return VOS_TRUE;
+    }
+
+    CNAS_XSD_SetHrpdConnExistFlag(pstRcvMsg->ucHrpdConnExistFlg);
+    CNAS_XSD_SetLteConnExistFlag(pstRcvMsg->ucLteEpsConnExistFlg);
+
+    if ((VOS_FALSE               == pstRcvMsg->ucHrpdConnExistFlg)
+     || ((VOS_FALSE              == pstRcvMsg->ucLteEpsConnExistFlg)
+      && (CNAS_CCB_VERSION_SRLTE == CNAS_CCB_IsVersionSrlte())))
+    {
+        return VOS_FALSE;
+    }
+
+    return VOS_TRUE;
+}
+#ifdef __PS_WIN32_RECUR__
+
+VOS_UINT32 CNAS_XSD_RestorePcReplayFixedContext_PreProc(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    CNAS_MNTN_LOG_PC_REPLAY_CONTEXT_STRU                   *pstRcvMsg               = VOS_NULL_PTR;
+    CNAS_XSD_PC_REPLAY_FIXED_CONTEXT_MSG_STRU              *pstFixedCtxMsg          = VOS_NULL_PTR;
+
+    CNAS_XSD_MRU_LIST_STRU                                 *pstMruList              = VOS_NULL_PTR;
+    CNAS_XSD_OOC_SCHEDULE_INFO_STRU                        *pstOocScheduleInfo      = VOS_NULL_PTR;
+    CNAS_XSD_TEST_CONFIG_STRU                              *pstTestConfig           = VOS_NULL_PTR;
+    CNAS_XSD_ADD_AVOID_LIST_CFG_STRU                       *pstAddAvoidListCfg      = VOS_NULL_PTR;
+    CNAS_XSD_NEG_PREF_SYS_CMP_CTRL_STRU                    *pstNegPrefSysCmpCtrl    = VOS_NULL_PTR;
+    CNAS_XSD_CALLBACK_CFG_STRU                             *pstCallBackCfg          = VOS_NULL_PTR;
+    CNAS_XSD_CDMA_1X_CUSTOM_PREF_CHANNELS_STRU             *pstCdma1XCustomPrefChan = VOS_NULL_PTR;
+    CNAS_XSD_AVOID_SCHEDULE_INFO_STRU                      *pstAvoidScheduleInfo    = VOS_NULL_PTR;
+    CNAS_CCB_OPER_LOCK_SYS_WHITE_LIST_STRU                 *pstOperLockSysWhiteList = VOS_NULL_PTR;
+    CNAS_CCB_CTCC_CUSTOMIZE_FREQ_LIST_STRU                 *pstCustFreqList         = VOS_NULL_PTR;
+    CNAS_CCB_CDMA_STANDARD_CHANNELS_STRU                   *pstCdmaStandardChan     = VOS_NULL_PTR;
+    CNAS_XSD_EMC_REDIAL_SYS_ACQ_CFG_STRU                   *pstEmcRedialSysAcqCfg   = VOS_NULL_PTR;
+
+    pstMruList              = CNAS_XSD_GetMruList();
+    pstOocScheduleInfo      = CNAS_XSD_GetOocScheduleInfo();
+    pstTestConfig           = CNAS_XSD_GetTestConfig();
+    pstAddAvoidListCfg      = &(CNAS_XSD_Get1xSysAcqNvimConfig()->stAddAvoidListCfg);
+    pstNegPrefSysCmpCtrl    = &(CNAS_XSD_Get1xSysAcqNvimConfig()->stNegPrefSysCmpCtrl);
+    pstCallBackCfg          = CNAS_XSD_GetCallBackCfg();
+    pstCdma1XCustomPrefChan = CNAS_XSD_GetCdma1XCustomPrefChannels();
+    pstAvoidScheduleInfo    = CNAS_XSD_GetAvoidScheduInfoAddr();
+    pstOperLockSysWhiteList = CNAS_CCB_GetOperLockSysWhiteList();
+    pstCustFreqList         = CNAS_CCB_GetCTCCCustomizeFreqList();
+    pstCdmaStandardChan     = CNAS_CCB_GetCdmaStandardChannels();
+    pstEmcRedialSysAcqCfg   = CNAS_XSD_GetEmcRedialSysAcqCfgInfo();
+
+    pstRcvMsg               = (CNAS_MNTN_LOG_PC_REPLAY_CONTEXT_STRU*)pstMsg;
+    pstFixedCtxMsg          = (CNAS_XSD_PC_REPLAY_FIXED_CONTEXT_MSG_STRU*)pstRcvMsg->aucDataCtx;
+
+    NAS_MEM_CPY_S(pstMruList, sizeof(CNAS_XSD_MRU_LIST_STRU),
+                  &(pstFixedCtxMsg->stMruList), sizeof(CNAS_XSD_MRU_LIST_STRU));
+
+    NAS_MEM_CPY_S(&(pstOocScheduleInfo->stStrategyCfg), sizeof(CNAS_XSD_OOS_SYS_ACQ_STRTEGY_CFG_STRU),
+                  &(pstFixedCtxMsg->stStrategyCfg), sizeof(CNAS_XSD_OOS_SYS_ACQ_STRTEGY_CFG_STRU));
+
+    NAS_MEM_CPY_S(pstTestConfig, sizeof(CNAS_XSD_TEST_CONFIG_STRU),
+                  &(pstFixedCtxMsg->stTestConfig), sizeof(CNAS_XSD_TEST_CONFIG_STRU));
+
+    NAS_MEM_CPY_S(pstAddAvoidListCfg, sizeof(CNAS_XSD_ADD_AVOID_LIST_CFG_STRU),
+                  &(pstFixedCtxMsg->stAddAvoidListCfg), sizeof(CNAS_XSD_ADD_AVOID_LIST_CFG_STRU));
+
+    NAS_MEM_CPY_S(pstNegPrefSysCmpCtrl, sizeof(CNAS_XSD_NEG_PREF_SYS_CMP_CTRL_STRU),
+                  &(pstFixedCtxMsg->stNegPrefSysCmpCtrl), sizeof(CNAS_XSD_NEG_PREF_SYS_CMP_CTRL_STRU));
+
+    NAS_MEM_CPY_S(pstCallBackCfg, sizeof(CNAS_XSD_CALLBACK_CFG_STRU),
+                  &(pstFixedCtxMsg->stCallBackCfg), sizeof(CNAS_XSD_CALLBACK_CFG_STRU));
+
+    NAS_MEM_CPY_S(pstCdma1XCustomPrefChan, sizeof(CNAS_XSD_CDMA_1X_CUSTOM_PREF_CHANNELS_STRU),
+                  &(pstFixedCtxMsg->stCdma1XCustomPrefChan), sizeof(CNAS_XSD_CDMA_1X_CUSTOM_PREF_CHANNELS_STRU));
+
+    NAS_MEM_CPY_S(pstAvoidScheduleInfo, sizeof(CNAS_XSD_AVOID_SCHEDULE_INFO_STRU),
+                  &(pstFixedCtxMsg->stAvoidScheduInfo), sizeof(CNAS_XSD_AVOID_SCHEDULE_INFO_STRU));
+
+    NAS_MEM_CPY_S(&(CNAS_XSD_GetXsdCtxAddr()->stSysAcqCtrl.stMru0StrategyCfg), sizeof(CNAS_XSD_MRU0_SWITCH_ON_OOC_STRATEGY_CFG_STRU),
+                  &(pstFixedCtxMsg->stMru0StrategyCfg), sizeof(CNAS_XSD_MRU0_SWITCH_ON_OOC_STRATEGY_CFG_STRU));
+
+    NAS_MEM_CPY_S(&(CNAS_XSD_GetXsdCtxAddr()->stSysAcqCtrl.stSysAcqNoRfProtectTimerInfo), sizeof(CNAS_XSD_1X_SYS_ACQ_NO_RF_PROTECT_TIMER_INFO_STRU),
+                  &(pstFixedCtxMsg->stSysAcqNoRfProtectTimerInfo), sizeof(CNAS_XSD_1X_SYS_ACQ_NO_RF_PROTECT_TIMER_INFO_STRU));
+
+    NAS_MEM_CPY_S(pstOperLockSysWhiteList, sizeof(CNAS_CCB_OPER_LOCK_SYS_WHITE_LIST_STRU),
+                  &(pstFixedCtxMsg->stOperLockSysWhiteList), sizeof(CNAS_CCB_OPER_LOCK_SYS_WHITE_LIST_STRU));
+
+    NAS_MEM_CPY_S(pstCustFreqList, sizeof(CNAS_CCB_CTCC_CUSTOMIZE_FREQ_LIST_STRU),
+                  &(pstFixedCtxMsg->stCustFreqList), sizeof(CNAS_CCB_CTCC_CUSTOMIZE_FREQ_LIST_STRU));
+
+    NAS_MEM_CPY_S(pstCdmaStandardChan, sizeof(CNAS_CCB_CDMA_STANDARD_CHANNELS_STRU),
+                  &(pstFixedCtxMsg->stCdmaStandardChan), sizeof(CNAS_CCB_CDMA_STANDARD_CHANNELS_STRU));
+
+    NAS_MEM_CPY_S(&(CNAS_CCB_GetCcbCtxAddr()->stCustomCfg), sizeof(CNAS_CCB_CUSTOM_CFG_INFO_STRU),
+                  &(pstFixedCtxMsg->stCustomCfg), sizeof(CNAS_CCB_CUSTOM_CFG_INFO_STRU));
+
+    NAS_MEM_CPY_S(pstEmcRedialSysAcqCfg->aucRedialTimes, sizeof(pstFixedCtxMsg->aucEmcRedialTimes),
+                  pstFixedCtxMsg->aucEmcRedialTimes, sizeof(pstEmcRedialSysAcqCfg->aucRedialTimes));
+
+    CNAS_XSD_GetXsdCtxAddr()->stSysAcqCtrl.ucIsConsiderRoamIndInPRL                          = pstFixedCtxMsg->ucIsConsiderRoamIndInPRL;
+    CNAS_XSD_GetXsdCtxAddr()->stSysAcqCtrl.st1xSysAcqSyncDelayInfo.uc1xSysAcqSyncDelayEnable =pstFixedCtxMsg->uc1xSysAcqSyncDelayEnable;
+    CNAS_XSD_GetXsdCtxAddr()->stSysAcqCtrl.st1xSysAcqSyncDelayInfo.ul1xSysAcqDelayTimerLen   = pstFixedCtxMsg->ul1xSysAcqDelayTimerLen;
+    CNAS_XSD_GetXsdCtxAddr()->stSysAcqCtrl.unUeSupportedBand.ulBand                          = pstFixedCtxMsg->ulUeSupportedBand;
+
+    return VOS_TRUE;
+}
+
+
+VOS_UINT32 CNAS_XSD_RestorePrlHeaderInfo_PreProc(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    CNAS_PRL_MNTN_HEADER_INFO_IND_STRU                     *pstMntnHeaderInfo = VOS_NULL_PTR;
+
+    pstMntnHeaderInfo = (CNAS_PRL_MNTN_HEADER_INFO_IND_STRU*)pstMsg;
+
+    CNAS_PRL_ReplayRestorePrlHeaderInfo(pstMntnHeaderInfo);
+
+    return VOS_TRUE;
+}
+
+VOS_UINT32 CNAS_XSD_RestorePrlAcqRecInfo_PreProc(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    CNAS_PRL_MNTN_ACQ_REC_INFO_IND_STRU                    *pstMntnAcqRecInfo = VOS_NULL_PTR;
+    CNAS_XSD_REPLAY_CTX_STRU                               *pstReplayCtx = VOS_NULL_PTR;
+
+
+    pstMntnAcqRecInfo = (CNAS_PRL_MNTN_ACQ_REC_INFO_IND_STRU*)pstMsg;
+
+    pstReplayCtx      = CNAS_XSD_ReplayGetCtxAddr();
+
+    CNAS_PRL_ReplayRestorePrlAcqRecInfo(pstMntnAcqRecInfo, pstReplayCtx->usPrlAcqRecRcvdNum);
+
+    pstReplayCtx->usPrlAcqRecRcvdNum += pstMntnAcqRecInfo->ucRecNum;
+    return VOS_TRUE;
+}
+
+VOS_UINT32 CNAS_XSD_RestorePrlSysRecInfo_PreProc(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    CNAS_PRL_MNTN_SYS_REC_INFO_IND_STRU                    *pstMntnSysRecInfo = VOS_NULL_PTR;
+    CNAS_XSD_REPLAY_CTX_STRU                               *pstReplayCtx = VOS_NULL_PTR;
+
+    pstReplayCtx      = CNAS_XSD_ReplayGetCtxAddr();
+
+    pstMntnSysRecInfo = (CNAS_PRL_MNTN_SYS_REC_INFO_IND_STRU*)pstMsg;
+
+    CNAS_PRL_ReplayRestorePrlSysRecInfo(pstMntnSysRecInfo, pstReplayCtx->usPrlSysRecRcvdNum);
+
+    pstReplayCtx->usPrlSysRecRcvdNum += pstMntnSysRecInfo->ucRecNum;
+
+    return VOS_TRUE;
+}
+
+
+
+VOS_UINT32 CNAS_XSD_RestoreHomeSidNidInfo_PreProc(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    CNAS_XSD_LOG_HOME_SID_NID_LIST_MSG_STRU                *pstRcvdMsg = VOS_NULL_PTR;
+    CNAS_CCB_1X_HOME_SID_NID_LIST_STRU                     *pstHomeSidNidList   = VOS_NULL_PTR;
+    VOS_UINT32                                              i;
+
+    pstRcvdMsg = (CNAS_XSD_LOG_HOME_SID_NID_LIST_MSG_STRU*)pstMsg;
+
+    pstHomeSidNidList = CNAS_CCB_GetHomeSidNidList();
+
+    CNAS_CCB_InitHomeSidNidList(pstHomeSidNidList);
+
+    /* 恢复 HOME SID NID信息*/
+    pstHomeSidNidList->ucSysNum = pstRcvdMsg->ucSysNum;
+
+    for (i = 0; i < pstHomeSidNidList->ucSysNum; i++)
+    {
+        NAS_MEM_CPY_S(&pstHomeSidNidList->astHomeSidNid[i],
+                      sizeof(CNAS_CCB_1X_HOME_SID_NID_STRU),
+                      &pstRcvdMsg->astHomeSidNid[i],
+                      sizeof(CNAS_CCB_1X_HOME_SID_NID_STRU));
+    }
+
+    return VOS_TRUE;
+}
+
+#endif
+
+/*lint -restore*/
+#endif
+
+#ifdef __cplusplus
+#if __cplusplus
+}
+#endif /* __cpluscplus */
+#endif /* __cpluscplus */
+
+
+

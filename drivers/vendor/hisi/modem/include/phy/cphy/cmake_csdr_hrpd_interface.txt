@@ -1,0 +1,8 @@
+if(cmake_csdr_hrpd_interface)
+  return()
+endif(cmake_csdr_hrpd_interface)
+set(cmake_csdr_hrpd_interface true)
+
+include_directories(
+    ${TOP_DIR}/modem/include/phy/cphy/csdr
+  )

@@ -1,0 +1,5 @@
+#
+# Generic huawei hisi misc drivers configuration
+#
+source "drivers/connectivity/hisi/Kconfig"
+

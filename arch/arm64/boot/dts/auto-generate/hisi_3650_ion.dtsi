@@ -1,0 +1,70 @@
+/* Copyright (c) 2012, Code Aurora Forum. All rights reserved.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+
+/ {
+	hisi,ion {
+		compatible = "hisilicon,hisi-ion";
+
+		iommu_info {
+			start-addr = <0x40000>;
+			size = <0xbffc0000>;
+		};
+		linear {
+			start-addr = <0x40000>;
+			size = <0xbffc0000>;
+			page-size = <0x1000>;
+			page-align = <0x40000>;
+		};
+		heap_sys_user@0 {
+			heap-name = "sys_heap";
+			heap-id   = <0x0>;
+			heap-base = <0x0>;
+			heap-size = <0x0>;
+			heap-type = "ion_system";
+		};
+		heap_sys_contig@1 {
+			heap-name = "sys_contig";
+			heap-id   = <0x1>;
+			heap-base = <0x0>;
+			heap-size = <0x0>;
+			heap-type = "ion_system_contig";
+		};
+		heap_carveout_gralloc@2 {
+			heap-name = "carveout_gralloc";
+			heap-id   = <0x2>;
+			heap-base = <0x31000000>;
+			heap-size = <0x1C00000>;
+			heap-type = "ion_carveout";
+		};
+		heap_sec_drm_gralloc@15 {
+			heap-name = "drm-gralloc";
+			heap-id   = <0xf>;
+			heap-base = <0x0>;
+			heap-size = <0xb000000>;
+			heap-type = "ion_sec";
+		};
+		heap_sec_drm_vcodec@16 {
+			heap-name = "drm-vcodec";
+			heap-id   = <0x10>;
+			heap-base = <0x0>;
+			heap-size = <0x12000000>;
+			heap-type = "ion_sec";
+		};
+		heap_carveout_drm_misc@14 {
+			heap-name = "drm-misc";
+			heap-id   = <0xe>;
+			heap-base = <0x80000000>;
+			heap-size = <0x2000000>;
+			heap-type = "ion_carveout";
+		};
+	};
+};

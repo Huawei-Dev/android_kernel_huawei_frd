@@ -1,0 +1,1037 @@
+
+
+/*****************************************************************************
+  1 Include HeadFile
+*****************************************************************************/
+#include "EmmEsmInterface.h"
+#include "EmmRabmInterface.h"
+#include "TcRabmInterface.h"
+#include "EmmTcInterface.h"
+#include "EmmLppInterface.h"
+#include "ImsaImsInterface.h"
+#include "ImsaImsEvent.h"
+#include "ImsaIntraInterface.h"
+#include "ImsaEntity.h"
+#include "NasLppOm.h"
+#include "NasLppIntraInterface.h"
+#include "EtcLppInterface.h"
+//#include "TTFMemCtrl.h"
+#include "NasLcsOm.h"
+#include "ImsaLmmInterface.h"
+#include "LRrcGrrInterface.h"
+#include "LmmCssInterface.h"
+#include "lrrccashrpdinterface.h"
+#include "CssInterface.h"
+#include "LmmSmsInterface.h"
+#include "MmLmmInterface.h"
+#include "LRrcWRrcInterface.h"
+#include "CdsErabmInterface.h"
+#include "CdsEtcInterface.h"
+#include "CdsNdInterface.h"
+#include "ApsNdInterface.h"
+#include "CdsAdsInterface.h"
+#include "CdsMmcInterface.h"
+#include "NasRlcInterface.h"
+#include "OmEmmInterface.h"
+#include "OmEsmInterface.h"
+#include "NasBackOffAlgMain.h"
+#include "ImsaNvInterface.h"
+#include "ImsaPublic.h"
+#include "LcsLppInterface.h"
+#include "LmmLcsInterface.h"
+#include "LNasReplayProc.h"
+#include "NasLmmPubMOm.h"
+#include "NasEsmNwMsgEncode.h"
+#include "NasEsmNwMsgProc.h"
+#include "NasEmmSecuProtect.h"
+#include "NasLmmPubMTimer.h"
+#include "EsmRabmInterface.h"
+#include "NasERabmPublic.h"
+#include "LppMtaInterface.h"
+#include "NasEmmMrrcPubInterface.h"
+#include "NasEmmTAUProc.h"
+#include "NasLppPublic.h"
+#include "NasLcsTimerMsgProc.h"
+#include "NasEsmPublic.h"
+#include "MmaMsccInterface.h"
+#include "ImsaMsccInterface.h"
+#include "TdmacCodecInterface.h"
+#include "MsccMmcInterface.h"
+#include "NasEsmOmMsgProc.h"
+#include "NasERabmIpFilter.h"
+#include "NasEsmEhsmMsgProc.h"
+#include "NasEsmNwMsgDecode.h"
+#include "NasEmmPubUCnMsgDecode.h"
+#include "NasMmlCtx.h"
+#include "NasEmmcPublic.h"
+#include "AppNasComm.h"
+
+
+
+VOS_VOID hids_elf_tlnas(VOS_VOID)
+{
+    /* enum begin */
+
+    /* EmmEsmInterface.h  */
+    enum EMM_ESM_MSG_TYPE_ENUM              enEMM_ESM_MSG_TYPE_ENUM;
+    enum EMM_ESM_PDN_CON_RSLT_ENUM          enEMM_ESM_PDN_CON_RSLT_ENUM;
+    enum EMM_ESM_PDN_CON_REQ_TYPE_ENUM      enEMM_ESM_PDN_CON_REQ_TYPE_ENUM;
+    enum EMM_ESM_ATTACH_STATUS_ENUM         enEMM_ESM_ATTACH_STATUS_ENUM;
+    enum EMM_ESM_ATTACH_RESULT_ENUM         enEMM_ESM_ATTACH_RESULT_ENUM;
+    enum EMM_ESM_BEARER_CNTXT_MOD_ENUM      enEMM_ESM_BEARER_CNTXT_MOD_ENUM;
+    enum EMM_ESM_UP_SINGNAL_PENDING_ENUM    enEMM_ESM_UP_SINGNAL_PENDING_ENUM;
+    enum EMM_ESM_RSLT_TYPE_ENUM             enEMM_ESM_RSLT_TYPE_ENUM;
+    enum EMM_ESM_RAT_TYPE_ENUM              enEMM_ESM_RAT_TYPE_ENUM;
+    enum EMM_ESM_SESSION_TYPE_ENUM          enEMM_ESM_SESSION_TYPE_ENUM;
+    enum EMM_ESM_SEND_RSLT_ENUM             enEMM_ESM_SEND_RSLT_ENUM;
+
+
+    /* EmmRabmInterface.h */
+    enum EMM_ERABM_MSG_TYPE_ENUM            enEMM_ERABM_MSG_TYPE_ENUM;
+    enum EMM_ERABM_REEST_STATE_ENUM         enEMM_ERABM_REEST_STATE_ENUM;
+    enum EMM_ERABM_REL_CAUSE_ENUM           enEMM_ERABM_REL_CAUSE_ENUM;
+    enum EMM_ERABM_UP_DATA_PENDING_ENUM     enEMM_ERABM_UP_DATA_PENDING_ENUM;
+    enum EMM_ERABM_RSLT_TYPE_ENUM           enEMM_ERABM_RSLT_TYPE_ENUM;
+    enum EMM_ERABM_SYS_CHNG_TYPE_ENUM       enEMM_ERABM_SYS_CHNG_TYPE_ENUM;
+
+    /* TcRabmInterface.h */
+
+    /* EmmTcInterface.h */
+    enum EMM_ETC_MSG_TYPE_ENUM                enEMM_ETC_MSG_TYPE_ENUM;
+
+    /* EmmLppInterface.h */
+    enum LMM_LPP_MSG_TYPE_ENUM              enLMM_LPP_MSG_TYPE_ENUM;
+    enum LMM_LPP_SEND_RSLT_ENUM             enLMM_LPP_SEND_RSLT_ENUM;
+    enum LMM_LPP_EST_RESULT_ENUM            enLMM_LPP_EST_RESULT_ENUM;
+    enum LMM_LPP_REL_CAUSE_ENUM             enLMM_LPP_REL_CAUSE_ENUM;
+
+    /* ImsaImsInterface.h */
+    enum IMSA_IMS_MSG_ID_ENUM                   enIMSA_IMS_MSG_ID_ENUM;
+	enum IMSA_IMS_INPUT_SERVICE_REASON_ENUM     enIMSA_IMS_INPUT_SERVICE_REASON_ENUM;
+	enum IMSA_IMS_NW_ACCESS_TYPE_ENUM           enIMSA_IMS_NW_ACCESS_TYPE_ENUM;
+    enum SPM_IMSA_MSG_TYPE_ENUM                 enSPM_IMSA_MSG_TYPE_ENUM;
+    enum SPM_IMSA_CALL_MODIFY_STATUS_ENUM       enSPM_IMSA_CALL_MODIFY_STATUS_ENUM;
+    enum IMSA_IMS_INPUT_CALL_REASON_ENUM        enIMSA_IMS_INPUT_CALL_REASON_ENUM;
+    enum IMSA_IMS_INPUT_SMS_REASON_ENUM         enIMSA_IMS_INPUT_SMS_REASON_ENUM;
+    enum IMSA_IMS_AUTH_TYPE_ENUM                enIMSA_IMS_AUTH_TYPE_ENUM;
+    enum IMSA_IMS_INPUT_SYSTEM_REASON_ENUM      enIMSA_IMS_INPUT_SYSTEM_REASON_ENUM;
+    enum IMSA_IMS_INPUT_USSD_REASON_ENUM        enIMSA_IMS_INPUT_USSD_REASON_ENUM;
+    enum IMSA_IMS_INPUT_NV_INFO_REASON_ENUM     enIMSA_IMS_INPUT_NV_INFO_REASON_ENUM;
+    enum IMSA_IMS_OUTPUT_CALL_REASON_ENUM       enIMSA_IMS_OUTPUT_CALL_REASON_ENUM;
+    enum IMSA_IMS_OUTPUT_SMS_REASON_ENUM        enIMSA_IMS_OUTPUT_SMS_REASON_ENUM;
+    enum IMSA_IMS_OUTPUT_SEVICE_REASON_ENUM     enIMSA_IMS_OUTPUT_SEVICE_REASON_ENUM;
+    enum IMSA_IMS_OUTPUT_PARA_REASON_ENUM       enIMSA_IMS_OUTPUT_PARA_REASON_ENUM;
+    enum IMSA_IMS_OUTPUT_SYSTM_REASON_ENUM      enIMSA_IMS_OUTPUT_SYSTM_REASON_ENUM;
+    enum IMSA_IMS_OUTPUT_USSD_REASON_ENUM       enIMSA_IMS_OUTPUT_USSD_REASON_ENUM;
+    enum IMSA_IMS_USSD_ENCTYPE_ENUM             enIMSA_IMS_USSD_ENCTYPE_ENUM;
+    enum IMSA_IMS_OUTPUT_NV_INFO_REASON_ENUM    enIMSA_IMS_OUTPUT_NV_INFO_REASON_ENUM;
+    enum IMSA_IMS_CALL_CLIR_TYPE_ENUM           enIMSA_IMS_CALL_CLIR_TYPE_ENUM;
+    enum IMSA_IMS_EMERGENCY_TYPE_ENUM           enIMSA_IMS_EMERGENCY_TYPE_ENUM;
+    enum IMSA_IMS_CALL_DIRECTION_ENUM           enIMSA_IMS_CALL_DIRECTION_ENUM;
+    enum IMSA_IMS_CALL_STATE_ENUM               enIMSA_IMS_CALL_STATE_ENUM;
+    enum IMSA_IMS_ECONF_CALLER_STATE_ENUM       enIMSA_IMS_ECONF_CALLER_STATE_ENUM;
+    enum IMSA_IMS_CALL_ADDRESS_TYPE_ENUM        enIMSA_IMS_CALL_ADDRESS_TYPE_ENUM;
+    enum IMSA_IMS_CALL_MULTIPARTY_ENUM          enIMSA_IMS_CALL_MULTIPARTY_ENUM;    
+    enum IMSA_IMS_CALL_CAUSE_CODE_ENUM          enIMSA_IMS_CALL_CAUSE_CODE_ENUM;
+    enum IMSA_IMS_SERVICE_STATE_ENUM            enIMSA_IMS_SERVICE_STATE_ENUM;
+    enum IMSA_IMS_SUPSRV_CALL_NOTICE_ENUM       enIMSA_IMS_SUPSRV_CALL_NOTICE_ENUM;
+    enum IMSA_IMS_RAT_TYPE_ENUM                 enIMSA_IMS_RAT_TYPE_ENUM;
+    enum IMSA_IMS_EVENT_TYPE_ENUM               enIMSA_IMS_EVENT_TYPE_ENUM;
+    enum IMSA_IMS_INT_ERROR_CODE_ENUM           enIMSA_IMS_INT_ERROR_CODE_ENUM;
+    enum IMSA_IMS_3GPP_TYPE_ACTION_ENUM         enIMSA_IMS_3GPP_TYPE_ACTION_ENUM;
+    enum IMSA_IMS_DTMF_KEY_ENUM                 enIMSA_IMS_DTMF_KEY_ENUM;
+    enum IMSA_IMS_SERVICE_NOTIFY_EVENT_ENUM     enIMSA_IMS_SERVICE_NOTIFY_EVENT_ENUM;
+    enum IMSA_IMS_CALL_FAIL_DETAIL_REASON_ENUM  enIMSA_IMS_CALL_FAIL_DETAIL_REASON_ENUM;	
+	
+	/* ImsaImsEvent */
+	enum IMSA_IMS_CALL_REL_CAUSE_ENUM           enIMSA_IMS_CALL_REL_CAUSE_ENUM;
+	enum IMSA_IMS_HO_TYPE_ENUM                  enIMSA_IMS_HO_TYPE_ENUM;
+	enum IMSA_IMS_CALL_MODE_ENUM                enIMSA_IMS_CALL_MODE_ENUM;
+	enum IMAS_IMS_INPUT_PARA_REASON_ENUM        enIMAS_IMS_INPUT_PARA_REASON_ENUM;
+
+    /* ImsaEntity.h */
+	enum IMSA_CALL_STATUS_ENUM                         enIMSA_CALL_STATUS_ENUM;
+	enum IMSA_CALL_CALL_REASON_RESOURCE_RESULT_ENUM    enIMSA_CALL_CALL_REASON_RESOURCE_RESULT_ENUM;
+	enum IMSA_CALL_MODE_ENUM                           enIMSA_CALL_MODE_ENUM;
+	enum IMSA_CALL_NUM_TYPE_ENUM                       enIMSA_CALL_NUM_TYPE_ENUM;
+	enum IMSA_REG_STAUTS_ENUM                          enIMSA_REG_STAUTS_ENUM;
+	enum IMSA_CAMPED_RAT_TYPE_ENUM                     enIMSA_CAMPED_RAT_TYPE_ENUM;
+	enum IMSA_PS_SERVICE_STATUS_ENUM                   enIMSA_PS_SERVICE_STATUS_ENUM;
+	enum IMSA_IMS_VOPS_STATUS_ENUM                     enIMSA_IMS_VOPS_STATUS_ENUM;
+	enum IMSA_EMS_STAUTS_ENUM                          enIMSA_EMS_STAUTS_ENUM;
+	enum IMSA_PDP_TYPE_ENUM                            enIMSA_PDP_TYPE_ENUM;
+	enum IMSA_CONN_STATUS_ENUM                         enIMSA_CONN_STATUS_ENUM;
+	enum IMSA_CONN_PDN_HO_STATE_ENUM                   enIMSA_CONN_PDN_HO_STATE_ENUM;
+	enum IMSA_STATUS_ENUM                              enIMSA_STATUS_ENUM;
+	enum IMSA_ISIM_STATUS_ENUM                         enIMSA_ISIM_STATUS_ENUM;
+	enum IMSA_VOICE_DOMAIN_ENUM                        enIMSA_VOICE_DOMAIN_ENUM;
+	enum IMSA_NRM_SRV_CON_SAT_STATUE_ENMUM             enIMSA_NRM_SRV_CON_SAT_STATUE_ENMUM;
+	enum IMSA_SRV_STATUS_ENUM                          enIMSA_SRV_STATUS_ENUM;
+	enum IMSA_SRV_DEREG_CAUSE_ENUM                     enIMSA_SRV_DEREG_CAUSE_ENUM;
+	enum IMSA_SMS_SMR_STATE_ENUM                       enIMSA_SMS_SMR_STATE_ENUM;
+	enum IMSA_CALL_DTMF_STATE_ENUM                     enIMSA_CALL_DTMF_STATE_ENUM;
+    enum IMSA_OM_CONN_FORBIDDEN_CAUSE_ENUM             enIMSA_OM_CONN_FORBIDDEN_CAUSE_ENUM;
+	enum IMSA_TIMER_RUN_STA_ENUM                       enIMSA_TIMER_RUN_STA_ENUM;
+    
+
+    /* NasLppOm.h */
+    enum NAS_LPP_OM_MSG_ENUM                     enNAS_LPP_OM_MSG_ENUM;
+	enum NAS_LPP_ASN_MSG_IE_TYPE_ENUM            enNAS_LPP_ASN_MSG_IE_TYPE_ENUM;
+	enum NAS_LPP_ASN_MSG_ERR_CAUSE_ENUM          enNAS_LPP_ASN_MSG_ERR_CAUSE_ENUM;
+
+    /* NasLppIntraInterface.h */
+    enum NAS_LPP_INTRA_MSG_ID_ENUM               enNAS_LPP_INTRA_MSG_ID_ENUM;
+
+    /* EtcLppInterface.h */
+    enum ETC_LPP_MSG_TYPE_ENUM                   enETC_LPP_MSG_TYPE_ENUM;
+    enum ETC_LPP_RESET_TYPE_ENUM                 enETC_LPP_RESET_TYPE_ENUM;
+
+    /* NasEsmBackOffAlgMain.h */
+    enum NAS_BACKOFF_NETRAT_ENUM                 enNAS_BACKOFF_NETRAT_ENUM;
+    enum NAS_BACKOFF_OPERATE_TYPE_ENUM           enNAS_BACKOFF_OPERATE_TYPE_ENUM;
+    enum NAS_BACKOFF_RESET_CAUSE_ENUM            enNAS_BACKOFF_RESET_CAUSE_ENUM;
+    enum NAS_BACKOFF_PDP_ACTIVE_RESULT_ENUM      enNAS_BACKOFF_PDP_ACTIVE_RESULT_ENUM;
+    enum NAS_BACKOFF_APN_ENTITY_FLAG_ENUM        enNAS_BACKOFF_APN_ENTITY_FLAG_ENUM;
+    enum NAS_BACKOFF_STATE_ENUM                  enNAS_BACKOFF_STATE_ENUM;
+    enum NAS_BACKOFF_FOBID_TIMER_STATE_ENUM      enNAS_BACKOFF_FOBID_TIMER_STATE_ENUM;
+    enum NAS_BACKOFF_PDP_REJ_TYPE_ENUM           enNAS_BACKOFF_PDP_REJ_TYPE_ENUM;
+	
+	/* LNasReplayProc.h */
+	enum NAS_LMM_REPLAY_CONTEXT_ENUM             enNAS_LMM_REPLAY_CONTEXT_ENUM;
+	enum NAS_OM_LOG_MSG_ID_ENUM                  enNAS_OM_LOG_MSG_ID_ENUM;
+	
+	/* "NasLmmPubMOm.h */
+	enum NAS_LMM_TIMER_RUN_STA_ENUM              enNAS_LMM_TIMER_RUN_STA_ENUM;
+
+
+
+    /* tafappaps.h */
+    /* spmimsainterface.h */
+
+
+    /* ImsaMtcInterface.h */
+    enum IMSA_MTC_MSG_ID_ENUM               enIMSA_MTC_MSG_ID_ENUM;
+    enum IMSA_SRV_CONN_STATUS_EXIST_ENUM    enIMSA_SRV_CONN_STATUS_EXIST_ENUM;
+    enum MTC_IMSA_MODEM_POWER_STATE_ENUM    enMTC_IMSA_MODEM_POWER_STATE_ENUM;
+
+    /* ImsaInterface.h */
+    enum IMSA_INTER_MSG_ID_ENUM             enIMSA_INTER_MSG_ID_ENUM;
+    enum IMSA_SUBCRIBE_TYPE_ENUM            enIMSA_SUBCRIBE_TYPE_ENUM;
+    enum IMSA_NORMAL_REG_STATUS_ENUM        enIMSA_NORMAL_REG_STATUS_ENUM;
+
+    /* imsaintrainterface.h */
+    enum IMSA_INTRA_MSG_ID_ENUM                 enIMSA_INTRA_MSG_ID_ENUM;
+    enum IMSA_REG_RESULT_ENUM                   enIMSA_REG_RESULT_ENUM;
+    enum IMSA_REG_ADDR_PARAM_ENUM               enIMSA_REG_ADDR_PARAM_ENUM;
+    enum IMSA_REG_TYPE_ENUM                     enIMSA_REG_TYPE_ENUM;
+    enum IMSA_REG_RETRY_POLICY_ENUM             enIMSA_REG_RETRY_POLICY_ENUM;
+    enum IMSA_IP_TYPE_ENUM                      enIMSA_IP_TYPE_ENUM;
+    enum IMSA_PF_TRANS_DIRECTION_ENUM           enIMSA_PF_TRANS_DIRECTION_ENUM;
+    enum IMSA_CONN_TYPE_ENUM                    enIMSA_CONN_TYPE_ENUM;
+    enum IMSA_CALL_SERVICE_STATUS_ENUM          enIMSA_CALL_SERVICE_STATUS_ENUM;
+    enum IMSA_CALL_RESULT_ENUM                  enIMSA_CALL_RESULT_ENUM;
+    enum IMSA_RESULT_ACTION_ENUM                enIMSA_RESULT_ACTION_ENUM;
+    enum IMSA_CONN_RESULT_ENUM                  enIMSA_CONN_RESULT_ENUM;
+    enum IMSA_CONN_SIP_PDP_TYPE_ENUM            enIMSA_CONN_SIP_PDP_TYPE_ENUM;
+    enum IMSA_CONN_MEDIA_PDP_TYPE_ENUM          enIMSA_CONN_MEDIA_PDP_TYPE_ENUM;
+    enum IMSA_CONN_MODIFY_TYPE_ENUM             enIMSA_CONN_MODIFY_TYPE_ENUM;
+    enum IMSA_PCSCF_SRC_TYPE                    enIMSA_PCSCF_SRC_TYPE;
+    enum IMSA_SRV_TYPE_ENUM                     enIMSA_SRV_TYPE_ENUM;
+    enum IMSA_CALL_TYPE_ENUM                    enIMSA_CALL_TYPE_ENUM;
+    enum IMSA_EMC_CALL_TYPE_ENUM                enIMSA_EMC_CALL_TYPE_ENUM;
+    enum IMSA_CALL_NO_SRV_CAUSE_ENUM            enIMSA_CALL_NO_SRV_CAUSE_ENUM;
+	enum IMSA_IMS_DOMAIN_ENUM                   enIMSA_IMS_DOMAIN_ENUM;
+	enum IMSA_IMS_VOLTECTRLVOWIFI_ENUM          enIMSA_IMS_VOLTECTRLVOWIFI_ENUM;
+	enum IMSA_IMS_DOMAIN_PREFR_CFG_ENUM         enIMSA_IMS_DOMAIN_PREFR_CFG_ENUM;
+	enum IMSA_DOMAIN_FSM_L2_STATE_NUM           enIMSA_DOMAIN_FSM_L2_STATE_NUM;
+	enum IMSA_WIRELESS_QUALITY_LEVEL_ENUM       enIMSA_WIRELESS_QUALITY_LEVEL_ENUM;
+	enum IMSA_DOMAIN_SERVICE_STATUS_ENUM        enIMSA_DOMAIN_SERVICE_STATUS_ENUM;
+	enum IMSA_DOMAIN_SWITCH_TYPE_ENUM           enIMSA_DOMAIN_SWITCH_TYPE_ENUM;
+	enum IMSA_DOMAIN_SWITCH_RESULT_ENUM         enIMSA_DOMAIN_SWITCH_RESULT_ENUM;
+	enum IMSA_DOMAIN_NO_SRV_CAUSE_ENUM          enIMSA_DOMAIN_NO_SRV_CAUSE_ENUM;
+	enum IMSA_RF_RES_APPLY_TRIGER_SRC_ENUM      enIMSA_RF_RES_APPLY_TRIGER_SRC_ENUM;
+	enum IMSA_TASKTYPE_STATUS_ENUM              enIMSA_TASKTYPE_STATUS_ENUM;
+	enum IMSA_RESOURCE_STATUS_ENUM              enIMSA_RESOURCE_STATUS_ENUM;
+	
+
+    /* ImsaPublic.h */
+    enum IMSA_OM_MSG_ENUM                       enIMSA_OM_MSG_ENUM;
+    enum IMSA_SIP_NW_ERROR_CAUSE_ENUM           enIMSA_SIP_NW_ERROR_CAUSE_ENUM;
+
+
+
+    enum IMSA_LMM_MSG_ID_ENUM                   enIMSA_LMM_MSG_ID_ENUM;
+    /* SmEsmInterface.h */
+    enum SM_ESM_MSG_ID_ENUM                     enSM_ESM_MSG_ID_ENUM;
+    enum SM_ESM_PDP_OPTION_ENUM                 enSM_ESM_PDP_OPTION_ENUM;
+    enum SM_ESM_PDP_TYPE_ENUM                   enSM_ESM_PDP_TYPE_ENUM;
+    enum SM_ESM_TRANSFER_DIRECTION_ENUM         enSM_ESM_TRANSFER_DIRECTION_ENUM;
+    enum SM_ESM_BCM_ENUM                        enSM_ESM_BCM_ENUM;
+    enum SM_ESM_PDP_EMC_IND_ENUM                enSM_ESM_PDP_EMC_IND_ENUM;
+    enum SM_ESM_PDP_IM_CN_SIG_FLAG_ENUM         enSM_ESM_PDP_IM_CN_SIG_FLAG_ENUM;
+    enum ESM_APS_NOTIFICATION_IND_ENUM          enESM_APS_NOTIFICATION_IND_ENUM;
+
+    /* LRrcGrrInterface.h */
+    enum LRRC_GRR_MSG_TYPE_ENUM                     enLRRC_GRR_MSG_TYPE_ENUM;
+    enum LRRC_GURRC_MEAS_BAND_WIDTH_ENUM            enLRRC_GURRC_MEAS_BAND_WIDTH_ENUM;
+    enum LRRC_GRR_BANDINDICATOR_ENUM                enLRRC_GRR_BANDINDICATOR_ENUM;
+    enum LRRC_GURRC_CELL_CAMPEDON_TYPE_ENUM         enLRRC_GURRC_CELL_CAMPEDON_TYPE_ENUM;
+    enum LRRC_GRR_RELALL_REASON_ENUM                enLRRC_GRR_RELALL_REASON_ENUM;
+    enum LRRC_GURRC_VALID_FLAG_ENUM                 enLRRC_GURRC_VALID_FLAG_ENUM;
+    enum LRRC_GURRC_CELL_RESEL_RESULT_ENUM          enLRRC_GURRC_CELL_RESEL_RESULT_ENUM;
+    enum LRRC_GURRC_HANDOVER_RESULT_ENUM            enLRRC_GURRC_HANDOVER_RESULT_ENUM;
+    enum LRRC_GURRC_REDIRECTED_RESULT_ENUM          enLRRC_GURRC_REDIRECTED_RESULT_ENUM;
+    enum LRRC_GRR_SYS_TYPE_ENUM                     enLRRC_GRR_SYS_TYPE_ENUM;
+    enum LRRC_GURRC_SET_DSP_POWER_CMD_ENUM          enLRRC_GURRC_SET_DSP_POWER_CMD_ENUM;
+    enum LRRC_GURRC_SET_DSP_POWER_RESULT_ENUM       enLRRC_GURRC_SET_DSP_POWER_RESULT_ENUM;
+    enum LRRC_WRRC_PLMN_SEARCH_RESULT_ENUM          enLRRC_WRRC_PLMN_SEARCH_RESULT_ENUM;
+    enum LRRC_GURRC_MEAS_CMD_ENUM                   enLRRC_GURRC_MEAS_CMD_ENUM;
+    enum LRRC_GURRC_MEAS_RESULT_ENUM                enLRRC_GURRC_MEAS_RESULT_ENUM;
+    enum LRRC_GURRC_GET_UECAP_RESULT_ENUM           enLRRC_GURRC_GET_UECAP_RESULT_ENUM;
+    enum LRRC_GURRC_MEAS_IRAT_TYPE_ENUM             enLRRC_GURRC_MEAS_IRAT_TYPE_ENUM;
+    enum LRRC_WRRC_STATE_TYPE_ENUM                  enLRRC_WRRC_STATE_TYPE_ENUM;
+    enum LRRC_GRR_VERIFY_TIME_INDEX_ENUM            enLRRC_GRR_VERIFY_TIME_INDEX_ENUM;
+    enum LRRC_GURRC_LOAD_DSP_RESULT_ENUM            enLRRC_GURRC_LOAD_DSP_RESULT_ENUM;
+    enum LRRC_GURRC_GET_CGI_RESULT_ENUM             enLRRC_GURRC_GET_CGI_RESULT_ENUM;
+    enum LRRC_GURRC_BG_SEARCH_RESULT_ENUM           enLRRC_GURRC_BG_SEARCH_RESULT_ENUM;
+    enum LRRC_GURRC_SEARCH_TYPE_ENUM                enLRRC_GURRC_SEARCH_TYPE_ENUM;
+    enum LRRC_GURRC_REDIR_TYPE_ENUM                 enLRRC_GURRC_REDIR_TYPE_ENUM;
+
+    /* LmmCssInterface.h */
+    enum LMM_CSS_MSG_ID_ENUM                        enLMM_CSS_MSG_ID_ENUM;
+
+    /* lrrccashrpdinterface.h */
+    enum LRRCCASHRPDINTERFACE_MSG_TYPE_ENUM         enLRRCCASHRPDINTERFACE_MSG_TYPE_ENUM;
+    enum CAS_LRRC_HRPD_MEAS_BAND_WIDTH_ENUM         enCAS_LRRC_HRPD_MEAS_BAND_WIDTH_ENUM;
+    enum CAS_LRRC_HRPD_BSR_RSLT_ENUM                enCAS_LRRC_HRPD_BSR_RSLT_ENUM;
+    enum CAS_LRRC_HRPD_CDMA_SYSTEM_TIME_TYPE_ENUM   enCAS_LRRC_HRPD_CDMA_SYSTEM_TIME_TYPE_ENUM;
+    enum CAS_LRRC_HRPD_CONNECTED_MEAS_RESULT_ENUM   enCAS_LRRC_HRPD_CONNECTED_MEAS_RESULT_ENUM;
+    enum CAS_LRRC_HRPD_IDLE_MEAS_RESULT_ENUM        enCAS_LRRC_HRPD_IDLE_MEAS_RESULT_ENUM;
+    enum CAS_LRRC_HRPD_IDLE_RESEL_RESULT_ENUM       enCAS_LRRC_HRPD_IDLE_RESEL_RESULT_ENUM;
+    enum CAS_LRRC_HRPD_MEAS_CMD_ENUM                enCAS_LRRC_HRPD_MEAS_CMD_ENUM;
+    enum CAS_LRRC_HRPD_MEAS_RESULT_ENUM             enCAS_LRRC_HRPD_MEAS_RESULT_ENUM;
+    enum CAS_LRRC_HRPD_REDIRECT_RESULT_ENUM         enCAS_LRRC_HRPD_REDIRECT_RESULT_ENUM;
+    enum CAS_LRRC_HRPD_REDIRECT_STOP_RESULT_ENUM    enCAS_LRRC_HRPD_REDIRECT_STOP_RESULT_ENUM;
+    enum LRRC_CAS_HRPD_IDLE_MEAS_RESULT_ENUM        enLRRC_CAS_HRPD_IDLE_MEAS_RESULT_ENUM;
+    enum LRRC_CAS_HRPD_IDLE_RESEL_RESULT_ENUM       enLRRC_CAS_HRPD_IDLE_RESEL_RESULT_ENUM;
+
+    /* CssInterface.h */
+    enum CSS_MSG_ID_ENUM                           enCSS_MSG_ID_ENUM;
+    enum CSS_BAND_IND_ENUM                         enCSS_BAND_IND_ENUM;
+    enum CSS_COVERAGE_TYPE_ENUM                    enCSS_COVERAGE_TYPE_ENUM;
+    enum CSS_MULTI_BAND_SCAN_RESULT_ENUM           enCSS_MULTI_BAND_SCAN_RESULT_ENUM;
+    enum CSS_MULTI_BAND_SCAN_TYPE                  enCSS_MULTI_BAND_SCAN_TYPE;
+    enum CSS_RAT_TYPE_ENUM                         enCSS_RAT_TYPE_ENUM;
+    enum CSS_RESULT_ENUM                           enCSS_RESULT_ENUM;
+
+    /* LmmSmsInterface.h */
+    enum LMM_SMS_MSG_ID_ENUM                        enLMM_SMS_MSG_ID_ENUM;
+    enum LMM_SMS_ERR_CAUSE_ENUM                     enLMM_SMS_ERR_CAUSE_ENUM;
+
+    /* MmLmmInterface.h */
+    enum MM_LMM_MSG_ID_ENUM                         enMM_LMM_MSG_ID_ENUM;
+    enum MM_LMM_COMBINED_TYPE_ENUM                  enMM_LMM_COMBINED_TYPE_ENUM;
+    enum MM_LMM_CSFB_SERVICE_TYPE_ENUM              enMM_LMM_CSFB_SERVICE_TYPE_ENUM;
+    enum MM_LMM_CSFB_SERVICE_RSLT_ENUM              enMM_LMM_CSFB_SERVICE_RSLT_ENUM;
+    enum LMM_MM_PAGING_IND_UE_ID_ENUM               enLMM_MM_PAGING_IND_UE_ID_ENUM;
+    enum LMM_MM_NW_IMS_VOICE_ENUM                   enLMM_MM_NW_IMS_VOICE_ENUM;
+    enum LMM_MM_NW_EMC_BS_ENUM                      enLMM_MM_NW_EMC_BS_ENUM;
+    enum MM_LMM_SECU_INFO_RSLT_ENUM                 enMM_LMM_SECU_INFO_RSLT_ENUM;
+    enum MM_LMM_SRVCC_STATUS_ENUM                   enMM_LMM_SRVCC_STATUS_ENUM;
+    enum MM_LMM_SESSION_TYPE_ENUM                   enMM_LMM_SESSION_TYPE_ENUM;
+
+    /* LRrcWRrcInterface.h */
+    enum LRRC_WRRC_MSG_TYPE_ENUM                    enLRRC_WRRC_MSG_TYPE_ENUM;
+
+    /* CdsErabmInterface.h */
+    enum CDS_ERABM_MSG_ID_ENUM                          enCDS_ERABM_MSG_ID_ENUM;
+    enum CDS_ERABM_TRANSFER_RESULT_ENUM                 enCDS_ERABM_TRANSFER_RESULT_ENUM;
+    enum CDS_ERABM_SEND_BUFF_DATA_ALLOWED_TYPE_ENUM     enCDS_ERABM_SEND_BUFF_DATA_ALLOWED_TYPE_ENUM;
+    enum RABM_RAB_STATUS_ENUM                           enRABM_RAB_STATUS_ENUM;
+    enum CDS_RABM_SEND_BUFF_DATA_ALLOWED_TYPE_ENUM      enCDS_RABM_SEND_BUFF_DATA_ALLOWED_TYPE_ENUM;
+    enum QCI_TYPE_ENUM                                  enQCI_TYPE_ENUM;
+    enum CDS_RABM_MSG_ID_ENUM                           enCDS_RABM_MSG_ID_ENUM;
+
+    /* CdsEtcInterface.h */
+    enum CDS_ETC_MSG_ID_ENUM                            enCDS_ETC_MSG_ID_ENUM;
+    enum CDS_TEST_MODE_ENUM                             enCDS_TEST_MODE_ENUM;
+    enum CDS_ETC_LB_MODE_ENUM                           enCDS_ETC_LB_MODE_ENUM;
+
+    /* CdsNdInterface.h */
+    enum NDCLIENT_CDS_RESULT_ENUM                       enNDCLIENT_CDS_RESULT_ENUM;
+    enum NDCLIENT_CDS_MSG_TYPE_ENUM                     enNDCLIENT_CDS_MSG_TYPE_ENUM;
+
+    /* ApsNdInterface.h */
+    enum APS_NDCLIENT_MSG_TYPE_ENUM                     enAPS_NDCLIENT_MSG_TYPE_ENUM;
+
+    /* CdsAdsInterface.h */
+    enum CDS_ADS_MSG_ID_ENUM                            enCDS_ADS_MSG_ID_ENUM;
+    enum CDS_ADS_IP_PACKET_TYPE_ENUM                    enCDS_ADS_IP_PACKET_TYPE_ENUM;
+    enum CDS_ADS_DL_IPF_BEARER_ID_ENUM                  enCDS_ADS_DL_IPF_BEARER_ID_ENUM;
+    enum ADS_CDS_PKT_TYPE_ENUM                          enADS_CDS_PKT_TYPE_ENUM;
+
+    /* CdsMmcInterface.h */
+    enum MMC_CDS_MODE_ENUM                              enMMC_CDS_MODE_ENUM;
+    enum MMC_CDS_MSG_ID_ENUM                            enMMC_CDS_MSG_ID_ENUM;
+
+    /* EsmRabmInterface.h */
+    enum ESM_ERABM_MSG_TYPE_ENUM              enESM_ERABM_MSG_TYPE_ENUM;
+    enum ESM_ERABM_PDN_TYPE_ENUM              enESM_ERABM_PDN_TYPE_ENUM;
+    enum ESM_ERABM_BEARER_TYPE_ENUM           enESM_ERABM_BEARER_TYPE_ENUM;
+    enum ESM_ERABM_BEARER_RAT_ENUM            enESM_ERABM_BEARER_RAT_ENUM;
+
+    /* "NasERabmPublic.h */
+    enum NAS_ERABM_EPSB_STATE_ENUM             enNAS_ERABM_EPSB_STATE_ENUM;
+    enum NAS_ERABM_RB_STATE_ENUM               enNAS_ERABM_RB_STATE_ENUM;
+    enum NAS_ERABM_TIMER_STATE_ENUM            enNAS_ERABM_TIMER_STATE_ENUM;
+    enum NAS_ERABM_TIMER_NAME_ENUM             enNAS_ERABM_TIMER_NAME_ENUM;
+    enum NAS_ERABM_OM_LOG_MSG_ENUM             enNAS_ERABM_OM_LOG_MSG_ENUM;
+    enum NAS_ERABM_WAIT_EPSB_ACT_ENUM          enNAS_ERABM_WAIT_EPSB_ACT_ENUM;
+    enum NAS_ERABM_L_MODE_STATUS_ENUM          enNAS_ERABM_L_MODE_STATUS_ENUM;
+    enum NAS_ERABM_SERVICE_STATE_ENUM          enNAS_ERABM_SERVICE_STATE_ENUM;
+    enum NAS_ERABM_MODE_TYPE_ENUM              enNAS_ERABM_MODE_TYPE_ENUM;
+    enum NAS_ERABM_TIMER_RUN_STA_ENUM          enNAS_ERABM_TIMER_RUN_STA_ENUM;
+
+    /* LppMtaInterface.h */
+    enum LPP_MTA_MSG_TYPE_ENUM                               enLPP_MTA_MSG_TYPE_ENUM;
+    enum LPP_MTA_AGNSS_ERROR_ENUM                            enLPP_MTA_AGNSS_ERROR_ENUM;
+    enum LPP_COMMON_IES_ABORT_ENUM                           enLPP_COMMON_IES_ABORT_ENUM;
+    enum LPP_ECID_TARGET_DEVICE_ERROR_CAUSE_ENUM             enLPP_ECID_TARGET_DEVICE_ERROR_CAUSE_ENUM;
+    enum LPP_ECID_LOCATION_SERVER_ERROR_CAUSE_ENUM           enLPP_ECID_LOCATION_SERVER_ERROR_CAUSE_ENUM;
+    enum LPP_MPATH_DET_ENUM                                  enLPP_MPATH_DET_ENUM;
+    enum LPP_LOCATION_FAILURE_CAUSE_ENUM                     enLPP_LOCATION_FAILURE_CAUSE_ENUM;
+    enum LPP_ENVIRONMENT_ENUM                                enLPP_ENVIRONMENT_ENUM;
+    enum LPP_ADDITON_REPORT_ENUM                             enLPP_ADDITON_REPORT_ENUM;
+    enum LPP_REPORT_INTERVAL_ENUM                            enLPP_REPORT_INTERVAL_ENUM;
+    enum LPP_REPORT_AMOUNT_ENUM                              enLPP_REPORT_AMOUNT_ENUM;
+    enum LPP_LOCATION_INFO_TYPE_ENUM                         enLPP_LOCATION_INFO_TYPE_ENUM;
+    enum LPP_SBAS_ID_ENUM                                    enLPP_SBAS_ID_ENUM;
+    enum LPP_BSALIGN_ENUM                                    enLPP_BSALIGN_ENUM;
+    enum LPP_INITIATOR_TYPE_ENUM                             enLPP_INITIATOR_TYPE_ENUM;
+    enum LPP_GNSS_ID_ENUM                                    enLPP_GNSS_ID_ENUM;
+    enum LPP_CONFIDENCE_SUPPORT_R10_ENUM                     enLPP_CONFIDENCE_SUPPORT_R10_ENUM;
+    enum LPP_DOPPLER_UNCERTAINTY_EXT_SUPPORT_R10_ENUM        enLPP_DOPPLER_UNCERTAINTY_EXT_SUPPORT_R10_ENUM;
+    enum LPP_INTER_FREQ_RSTD_MEASUREMENT_R10_ENUM            enLPP_INTER_FREQ_RSTD_MEASUREMENT_R10_ENUM;
+    enum LPP_DOPPLER_EXTR10_ENUM                             enLPP_DOPPLER_EXTR10_ENUM;
+    enum LPP_GNSS_LOCATION_SERVER_ERROR_CAUSE_ENUM           enLPP_GNSS_LOCATION_SERVER_ERROR_CAUSE_ENUM;
+    enum LPP_GNSS_LOCATION_TARGET_DEVICE_ERROR_CAUSE_ENUM    enLPP_GNSS_LOCATION_TARGET_DEVICE_ERROR_CAUSE_ENUM;
+    enum LPP_OTDOA_LOCATION_SERVER_ERROR_CAUSE_ENUM          enLPP_OTDOA_LOCATION_SERVER_ERROR_CAUSE_ENUM;
+    enum LPP_OTDOA_LOCATION_TARGET_DEVICE_ERROR_CAUSE_ENUM   enLPP_OTDOA_LOCATION_TARGET_DEVICE_ERROR_CAUSE_ENUM;
+    enum LPP_ANTENNA_PORT_CONFIG_ENUM                        enLPP_ANTENNA_PORT_CONFIG_ENUM;
+    enum LPP_CP_LENGTH_ENUM                                  enLPP_CP_LENGTH_ENUM;
+    enum LPP_PRS_BAND_WITH_ENUM                              enLPP_PRS_BAND_WITH_ENUM;
+    enum LPP_NUMDL_FRAMES_ENUM                               enLPP_NUMDL_FRAMES_ENUM;
+    enum LPP_COMMON_IES_ERROR_ENUM                           enLPP_COMMON_IES_ERROR_ENUM;
+	enum LOC_COM_VERTICAL_DIRECT_ENUM                        enLOC_COM_VERTICAL_DIRECT_ENUM;
+	enum LOC_COM_LATITUDE_DIR_ENUM                           enLOC_COM_LATITUDE_DIR_ENUM;
+	enum LOC_COM_LATITUDE_SIGN_ENUM                          enLOC_COM_LATITUDE_SIGN_ENUM;
+	
+
+    /* OmEmmInterface.h  */
+    enum OM_EMM_MSG_TYPE_ENUM                    enOM_EMM_MSG_TYPE_ENUM;
+    enum OM_EMM_INFO_REPORT_ENUM                 enOM_EMM_INFO_REPORT_ENUM;
+    enum NAS_EMM_SECU_ALG_ENUM                   enNAS_EMM_SECU_ALG_ENUM;
+    enum NAS_EMM_INTEGRITY_ALG_ENUM              enNAS_EMM_INTEGRITY_ALG_ENUM;
+    enum NAS_UE_OPERATION_MODE_ENUM              enNAS_UE_OPERATION_MODE_ENUM;
+    enum EMM_MAIN_STATE_ENUM                     enEMM_MAIN_STATE_ENUM;
+    enum EMM_SUB_STATE_ENUM                      enEMM_SUB_STATE_ENUM;
+    enum EMM_UPDATE_STATE_ENUM                   enEMM_UPDATE_STATE_ENUM;
+
+    /* OmEsmInterface.h */
+    enum OM_ESM_MSG_TYPE_ENUM                  enOM_ESM_MSG_TYPE_ENUM;
+    enum OM_ESM_INFO_REPORT_ENUM               enOM_ESM_INFO_REPORT_ENUM;
+    enum ESM_BEARER_CONTEXT_STATE_ENUM         enESM_BEARER_CONTEXT_STATE_ENUM;
+    enum ESM_BEARER_TYPE_ENUM                  enESM_BEARER_TYPE_ENUM;
+
+    /* NasLppPublic.h */
+    enum NAS_LPP_ERROR_CODE_ENUM             enNAS_LPP_ERROR_CODE_ENUM;
+    enum NAS_LPP_UPLINK_MSG_TYPE_ENUM        enNAS_LPP_UPLINK_MSG_TYPE_ENUM;
+    enum NAS_LPP_MAIN_STATE_ENUM             enNAS_LPP_MAIN_STATE_ENUM;
+    enum NAS_LPP_SUB_STATE_ENUM              enNAS_LPP_SUB_STATE_ENUM;
+    enum NAS_LPP_UP_STATE_STATE_ENUM         enNAS_LPP_UP_STATE_STATE_ENUM;
+    enum NAS_LPP_AIR_MSG_ENUM                enNAS_LPP_AIR_MSG_ENUM;
+    enum NAS_LPP_TIMER_PARA_ENUM             enNAS_LPP_TIMER_PARA_ENUM;
+    enum NAS_LPP_CONN_STATUS_ENUM            enNAS_LPP_CONN_STATUS_ENUM;
+    enum NAS_LPP_REPORT_LOCATION_TYPE_ENUM   enNAS_LPP_REPORT_LOCATION_TYPE_ENUM;
+    enum NAS_LPP_POSITION_TECH_ENUM          enNAS_LPP_POSITION_TECH_ENUM;
+    enum NAS_LPP_BUFF_FSM_MSG_PRIORITY_ENUM  enNAS_LPP_BUFF_FSM_MSG_PRIORITY_ENUM;
+    enum NAS_LPP_POSITION_PROCESS_TYPE_ENUM  enNAS_LPP_POSITION_PROCESS_TYPE_ENUM;
+    enum NAS_LPP_UP_POS_REQ_TECH_TYPE_ENUM   enNAS_LPP_UP_POS_REQ_TECH_TYPE_ENUM;
+
+    /* CdsRabmInterface.h */
+    /* TdsLayerMsg.h */
+    /* mac_rlc_het.h */
+
+    /* TrrcDebug.h */
+
+    /* NasLcsTimerMsgProc.h */
+    enum NAS_LCS_TIMER_ID_ENUM              enNAS_LCS_TIMER_ID_ENUM;
+
+    /* NasEsmPublic.h */
+    enum NAS_ESM_ERROR_CODE_ENUM            enNAS_ESM_ERROR_CODE_ENUM;
+    enum NAS_ESM_MATCH_RESULT_ENUM          enNAS_ESM_MATCH_RESULT_ENUM;
+    enum NAS_ESMCN_MSG_TYPE_ENUM            enNAS_ESMCN_MSG_TYPE_ENUM;
+    enum NAS_ESM_CAUSE_ENUM                 enNAS_ESM_CAUSE_ENUM;
+    enum NAS_ESM_PDN_REQ_TYPE_ENUM          enNAS_ESM_PDN_REQ_TYPE_ENUM;
+    enum NAS_ESM_BEARER_TYPE_ENUM           enNAS_ESM_BEARER_TYPE_ENUM;
+    enum NAS_ESM_BEARER_STATE_ENUM          enNAS_ESM_BEARER_STATE_ENUM;
+    enum NAS_ESM_BEARER_PROC_TRANS_STATE_ENUM  enNAS_ESM_BEARER_PROC_TRANS_STATE_ENUM;
+    enum NAS_ESM_TIMER_PARA_ENUM            enNAS_ESM_TIMER_PARA_ENUM;
+    enum NAS_ESM_OM_LOG_MSG_ENUM            enNAS_ESM_OM_LOG_MSG_ENUM;
+    enum NAS_ESM_PS_REGISTER_STATUS_ENUM    enNAS_ESM_PS_REGISTER_STATUS_ENUM;
+    enum NAS_ESM_L_MODE_STATUS_ENUM         enNAS_ESM_L_MODE_STATUS_ENUM;
+    enum NAS_ESM_BEARER_MANAGE_TYPE_ENUM    enNAS_ESM_BEARER_MANAGE_TYPE_ENUM;
+    enum NAS_ESM_BEARER_MANAGE_MODE_ENUM    enNAS_ESM_BEARER_MANAGE_MODE_ENUM;
+    enum NAS_ESM_BEARER_PROC_STATE_ENUM     enNAS_ESM_BEARER_PROC_STATE_ENUM;
+    enum NAS_ESM_TFT_OP_TYPE_ENUM           enNAS_ESM_TFT_OP_TYPE_ENUM;
+    enum NAS_ESM_QOS_OFFSET_ENUM            enNAS_ESM_QOS_OFFSET_ENUM;
+    enum NAS_ESM_QOS_RATE_ENUM              enNAS_ESM_QOS_RATE_ENUM;
+    enum NAS_ESM_QOS_RATE_GRANULARITY_ENUM  enNAS_ESM_QOS_RATE_GRANULARITY_ENUM;
+    enum NAS_ESM_QOS_RATE_RANGE_ENUM        enNAS_ESM_QOS_RATE_RANGE_ENUM;
+    enum NAS_ESM_QUERY_CID_RSLT_ENUM        enNAS_ESM_QUERY_CID_RSLT_ENUM;
+    enum NAS_ESM_APN_AMBR_OFFSET_ENUM       enNAS_ESM_APN_AMBR_OFFSET_ENUM;
+    enum NAS_ESM_OPID_TYPE_ENUM             enNAS_ESM_OPID_TYPE_ENUM;
+    enum NAS_ESM_QCI_TYPE_ENUM              enNAS_ESM_QCI_TYPE_ENUM;
+    enum NAS_ESM_BUFF_ITEM_TYPE_ENUM        enNAS_ESM_BUFF_ITEM_TYPE_ENUM;
+    enum NAS_ESM_FUN_MD5_CTRL_ENUM          enNAS_ESM_FUN_MD5_CTRL_ENUM;
+    enum NAS_ESM_EPS_QOS_CHANGE_TYPE_ENUM   enNAS_ESM_EPS_QOS_CHANGE_TYPE_ENUM;
+    enum NAS_ESM_APP_IND_TYPE_ENUM          enNAS_ESM_APP_IND_TYPE_ENUM;
+    enum NAS_ESM_NW_LOCAL_IP_CAP_ENUM       enNAS_ESM_NW_LOCAL_IP_CAP_ENUM;
+    enum NAS_ESM_FUN_CTRL_ENUM              enNAS_ESM_FUN_CTRL_ENUM;
+    enum NAS_ESM_TIMER_RUN_STA_ENUM         enNAS_ESM_TIMER_RUN_STA_ENUM;
+    enum NAS_ESM_BEARER_DATA_CNF_ENUM       enNAS_ESM_BEARER_DATA_CNF_ENUM;
+
+    /* NasEsmOmMsgProc.h */
+    enum NAS_ESM_TP_CMD_TYPE_ENUM           enNAS_ESM_TP_CMD_TYPE_ENUM;
+    enum NAS_ESM_AIR_MSG_DIR_ENUM           enNAS_ESM_AIR_MSG_DIR_ENUM;
+    enum NAS_ESM_FTM_ACTION_FLAG_ENUM       enNAS_ESM_FTM_ACTION_FLAG_ENUM;
+    enum NAS_ESM_ERRLOG_LEVEL_ENUM          enNAS_ESM_ERRLOG_LEVEL_ENUM;
+    enum NAS_ESM_ERRLOG_TYPE_ENUM           enNAS_ESM_ERRLOG_TYPE_ENUM;
+    enum NAS_ESM_ERRLOG_ACTION_FLAG_ENUM    enNAS_ESM_ERRLOG_ACTION_FLAG_ENUM;
+
+    /*NasERabmIpFilter.h */
+    enum NAS_ERABM_IPF_DL_FILTER_TYPE        enNAS_ERABM_IPF_DL_FILTER_TYPE;
+    enum NAS_ERABM_IPF_UL_NDIS_FILTER_TYPE   enNAS_ERABM_IPF_UL_NDIS_FILTER_TYPE;
+    enum NAS_ERABM_IPF_IPSEG_INFO            enNAS_ERABM_IPF_IPSEG_INFO;
+    enum NAS_ERABM_IPF_DIRECTION             enNAS_ERABM_IPF_DIRECTION;
+    enum NAS_ERABM_UL_NDIS_FILTER_FLAG_ENUM  enNAS_ERABM_UL_NDIS_FILTER_FLAG_ENUM;
+
+    /*NasEsmEhsmMsgProc.h */
+
+    /* NasEsmNwMsgDecode.h */
+    enum NAS_MSG_FORMAT_ENUM                                enNAS_MSG_FORMAT_ENUM;
+    enum NAS_ESM_INFO_FLAG_ENUM                             enNAS_ESM_INFO_FLAG_ENUM;
+    enum NAS_ESM_PCO_ITEM_TYPE_ENUM                         enNAS_ESM_PCO_ITEM_TYPE_ENUM;
+    enum NAS_ESM_IPCP_MSG_TYPE_ENUM                         enNAS_ESM_IPCP_MSG_TYPE_ENUM;
+    enum NAS_ESM_IPCP_OPTIONS_ENUM                          enNAS_ESM_IPCP_OPTIONS_ENUM;
+    enum NAS_ESM_NOTIFICATION_INDICATOR_ENUM                enNAS_ESM_NOTIFICATION_INDICATOR_ENUM;
+    enum NAS_ESM_TFT_PF_COP_TYPE_ENUM                       enNAS_ESM_TFT_PF_COP_TYPE_ENUM;
+    enum NAS_ESM_CN_MSG_IE_TYPE_ENUM                        enNAS_ESM_CN_MSG_IE_TYPE_ENUM;
+    enum NAS_ESM_DECODE_CN_MSG_FAIL_CAUSE_ENUM              enNAS_ESM_DECODE_CN_MSG_FAIL_CAUSE_ENUM;
+
+    /* NasEmmPubUCnMsgDecode.h */
+    enum NAS_EMM_EPS_UPDATE_RST_ENUM                         enNAS_EMM_EPS_UPDATE_RST_ENUM;
+    enum NAS_EMM_ATTACH_RST_ENUM                             enNAS_EMM_ATTACH_RST_ENUM;
+    enum NAS_EMM_DETACH_TYPE_MT_ENUM                         enNAS_EMM_DETACH_TYPE_MT_ENUM;
+    enum NAS_EMM_MSG_DECODE_TYPE_ENUM                        enNAS_EMM_MSG_DECODE_TYPE_ENUM;
+    enum NAS_EMM_IMEISV_REQUEST_INFO_ENUM                    enNAS_EMM_IMEISV_REQUEST_INFO_ENUM;
+    enum NAS_EMM_DECODE_IE_FORMAT_ENUM                       enNAS_EMM_DECODE_IE_FORMAT_ENUM;
+    enum NAS_EMM_CN_MSG_IE_TYPE_ENUM                         enNAS_EMM_CN_MSG_IE_TYPE_ENUM;
+    enum NAS_EMM_CN_MSG_IE_DECODE_FAIL_CAUSE_ENUM            enNAS_EMM_CN_MSG_IE_DECODE_FAIL_CAUSE_ENUM;
+
+    /* MmaMsccInterface */
+    enum MSCC_MMA_HRPD_SERVICE_STATUS_ENUM                    enMSCC_MMA_HRPD_SERVICE_STATUS_ENUM;
+    enum MSCC_MMA_HRPD_SYS_ACQ_RSLT_ENUM                      enMSCC_MMA_HRPD_SYS_ACQ_RSLT_ENUM;
+    enum MSCC_MMA_HRPD_SESSION_RELEASE_TYPE_ENUM              enMSCC_MMA_HRPD_SESSION_RELEASE_TYPE_ENUM;
+    enum MSCC_MMA_ACQ_SYS_TYPE_ENUM                           enMSCC_MMA_ACQ_SYS_TYPE_ENUM;
+    enum MMA_MSCC_HANDSET_INFO_TYPE_ENUM                      enMMA_MSCC_HANDSET_INFO_TYPE_ENUM;
+    enum MSCC_MMA_1X_CAS_P_REV_ENUM                           enMSCC_MMA_1X_CAS_P_REV_ENUM;
+    enum MSCC_MMA_1X_CAS_STATE_ENUM                           enMSCC_MMA_1X_CAS_STATE_ENUM;
+    enum MSCC_MMA_1X_CAS_SUB_STATE_ENUM                       enMSCC_MMA_1X_CAS_SUB_STATE_ENUM;
+    enum MSCC_MMA_1X_CALL_STATE_ENUM                          enMSCC_MMA_1X_CALL_STATE_ENUM;
+    enum MSCC_MMA_CL_SYSTEM_ACQUIRE_FAIL_REASON_ENUM          enMSCC_MMA_CL_SYSTEM_ACQUIRE_FAIL_REASON_ENUM;
+
+
+    /*ImsaMsccInterface */
+    enum MSCC_IMSA_MSG_ID_ENUM                    enMSCC_IMSA_MSG_ID_ENUM;
+    enum MSCC_IMSA_IMS_VOPS_INDICATOR_ENUM        enMSCC_IMSA_IMS_VOPS_INDICATOR_ENUM;
+    enum MSCC_IMSA_EMS_INDICATOR_ENUM             enMSCC_IMSA_EMS_INDICATOR_ENUM;
+    enum MSCC_IMSA_RAT_TYPE_ENUM                  enMSCC_IMSA_RAT_TYPE_ENUM;
+    enum MSCC_IMSA_SERVICE_STATUS_ENUM            enMSCC_IMSA_SERVICE_STATUS_ENUM;
+    enum MSCC_IMSA_ACCESS_TYPE_ENUM               enMSCC_IMSA_ACCESS_TYPE_ENUM;
+    enum MSCC_IMSA_IMS_VOICE_CAP_ENUM             enMSCC_IMSA_IMS_VOICE_CAP_ENUM;
+    enum MSCC_IMSA_VOICE_DOMAIN_ENUM              enMSCC_IMSA_VOICE_DOMAIN_ENUM;
+    enum MSCC_IMSA_IMS_DOMAIN_ENUM                enMSCC_IMSA_IMS_DOMAIN_ENUM;
+    enum IMSA_MSCC_SET_IMS_DOMAIN_RESULT_ENUM     enIMSA_MSCC_SET_IMS_DOMAIN_RESULT_ENUM;
+	enum IMSA_MSCC_REG_SUCC_PROC_ENUM             enIMSA_MSCC_REG_SUCC_PROC_ENUM;
+
+    /* TdmacCodecInterface.h */
+    enum TDMACVOICE_AMR_CODECMODE_TYPE_ENUM      enTDMACVOICE_AMR_CODECMODE_TYPE_ENUM;
+    enum TDMACVOICE_AMR_TYPE_ENUM                enTDMACVOICE_AMR_TYPE_ENUM;
+    enum TDMACVOICE_AMR_BANDWIDTH_TYPE_ENUM      enTDMACVOICE_AMR_BANDWIDTH_TYPE_ENUM;
+    enum TDMACVOICE_RSLT_ENUM                    enTDMACVOICE_RSLT_ENUM;
+    enum TDMACVOICE_MSG_TYPE_ENUM                enTDMACVOICE_MSG_TYPE_ENUM;
+
+    /* MsccMmcInterface.h */
+    enum MSCC_MMC_BG_SRCH_RESULT_ENUM                  enMSCC_MMC_BG_SRCH_RESULT_ENUM;
+    enum MSCC_MMC_IMS_VOICE_CAPABILITY_ENUM            enMSCC_MMC_IMS_VOICE_CAPABILITY_ENUM;
+    enum MSCC_MMC_PERSISTENT_BEARER_STATE_ENUM         enMSCC_MMC_PERSISTENT_BEARER_STATE_ENUM;
+    enum MSCC_MMC_MMSS_LTE_UNAVIALBLE_REASON_ENUM 	   enMSCC_MMC_MMSS_LTE_UNAVIALBLE_REASON_ENUM;
+
+    /* NasMmlCtx.h */
+    enum NAS_MML_CSG_ID_TYPE_ENUM                      enNAS_MML_CSG_ID_TYPE_ENUM;
+    enum NAS_MML_CSG_ID_DISPLAY_INDICATOR_TYPE_ENUM    enNAS_MML_CSG_ID_DISPLAY_INDICATOR_TYPE_ENUM;
+    enum NAS_MML_HOME_NODEB_NAME_INDICATION_ENUM       enNAS_MML_HOME_NODEB_NAME_INDICATION_ENUM;
+    enum NAS_MML_CELL_TYPE_ENUM                        enNAS_MML_CELL_TYPE_ENUM;
+    enum NAS_MML_SIM_TYPE_ENUM                         enNAS_MML_SIM_TYPE_ENUM;
+    enum NAS_MML_SIM_UE_OPER_MODE_ENUM                 enNAS_MML_SIM_UE_OPER_MODE_ENUM;
+    enum NAS_MML_NET_RAT_TYPE_ENUM                     enNAS_MML_NET_RAT_TYPE_ENUM;
+    enum NAS_MML_3GPP2_RAT_TYPE_ENUM                   enNAS_MML_3GPP2_RAT_TYPE_ENUM;
+    enum NAS_MML_PLATFORM_RAT_TYPE_ENUM                enNAS_MML_PLATFORM_RAT_TYPE_ENUM;
+    enum NAS_MML_NET_MODE_ENUM                         enNAS_MML_NET_MODE_ENUM;
+    enum NAS_MML_3GPP_REL_ENUM                         enNAS_MML_3GPP_REL_ENUM;
+    enum NAS_MML_GMM_PROC_TYPE_ENUM                    enNAS_MML_GMM_PROC_TYPE_ENUM;
+    enum NAS_MML_GMM_PROC_FLAG_ENUM                    enNAS_MML_GMM_PROC_FLAG_ENUM;
+    enum NAS_MML_SM_PROC_FLAG_ENUM                     enNAS_MML_SM_PROC_FLAG_ENUM;
+    enum NAS_MML_MSC_REL_ENUM                          enNAS_MML_MSC_REL_ENUM;
+    enum NAS_MML_SGSN_REL_ENUM                         enNAS_MML_SGSN_REL_ENUM;
+    enum NAS_MML_TIN_TYPE_ENUM                         enNAS_MML_TIN_TYPE_ENUM;
+    enum NAS_MML_LAST_RPLMN_SEL_IND_ENUM               enNAS_MML_LAST_RPLMN_SEL_IND_ENUM;
+    enum NAS_MML_EHPLMN_PRESENT_IND_ENUM               enNAS_MML_EHPLMN_PRESENT_IND_ENUM;
+    enum NAS_MML_ROAM_CAPABILITY_ENUM                  enNAS_MML_ROAM_CAPABILITY_ENUM;
+    enum NAS_MML_MS_MODE_ENUM                          enNAS_MML_MS_MODE_ENUM;
+    enum NAS_MML_LTE_CS_SERVICE_CFG_ENUM               enNAS_MML_LTE_CS_SERVICE_CFG_ENUM;
+    enum NAS_MML_LTE_UE_OPERATION_MODE_ENUM            enNAS_MML_LTE_UE_OPERATION_MODE_ENUM;
+    enum NAS_MML_LTE_UE_USAGE_SETTING_ENUM             enNAS_MML_LTE_UE_USAGE_SETTING_ENUM;
+    enum NAS_MML_VOICE_DOMAIN_PREFERENCE_ENUM          enNAS_MML_VOICE_DOMAIN_PREFERENCE_ENUM;
+    enum NAS_MML_CSFB_SERVICE_STATUS_ENUM              enNAS_MML_CSFB_SERVICE_STATUS_ENUM;
+    enum NAS_MML_ADDITION_UPDATE_RSLT_INFO_ENUM        enNAS_MML_ADDITION_UPDATE_RSLT_INFO_ENUM;
+    enum NAS_MML_TIMER_INFO_ENUM                       enNAS_MML_TIMER_INFO_ENUM;
+    enum NAS_MML_PS_BEARER_STATE_ENUM                  enNAS_MML_PS_BEARER_STATE_ENUM;
+    enum NAS_MML_PS_BEARER_ISR_ENUM                    enNAS_MML_PS_BEARER_ISR_ENUM;
+    enum NAS_MML_REG_FAIL_CAUSE_ENUM                   enNAS_MML_REG_FAIL_CAUSE_ENUM;
+    enum NAS_MML_SIM_AUTH_FAIL_ENUM                    enNAS_MML_SIM_AUTH_FAIL_ENUM;
+    enum NAS_MML_PLMN_FORBID_TYPE_ENUM                 enNAS_MML_PLMN_FORBID_TYPE_ENUM;
+    enum NAS_MML_ROUTING_UPDATE_STATUS_ENUM            enNAS_MML_ROUTING_UPDATE_STATUS_ENUM;
+    enum NAS_MML_LOCATION_UPDATE_STATUS_ENUM           enNAS_MML_LOCATION_UPDATE_STATUS_ENUM;
+    enum NAS_MML_REG_RESULT_ENUM                       enNAS_MML_REG_RESULT_ENUM;
+    enum NAS_MML_REG_STATUS_ENUM                       enNAS_MML_REG_STATUS_ENUM;
+    enum NAS_MML_RRC_INTEGRITY_PROTECT_ENUM            enNAS_MML_RRC_INTEGRITY_PROTECT_ENUM;
+    enum NAS_MML_PROC_TYPE_ENUM                        enNAS_MML_PROC_TYPE_ENUM;
+    enum NAS_MML_GAS_SUBMODE_ENUM                      enNAS_MML_GAS_SUBMODE_ENUM;
+    enum NAS_MML_INIT_CTX_TYPE_ENUM                    enNAS_MML_INIT_CTX_TYPE_ENUM;
+    enum NAS_MML_PERSISTENT_BEARER_STATE_ENUM          enNAS_MML_PERSISTENT_BEARER_STATE_ENUM;
+    enum NAS_MML_READ_SIM_FILES_CNF_ENUM               enNAS_MML_READ_SIM_FILES_CNF_ENUM;
+    enum NAS_MML_PLMN_TYPE_ENUM                        enNAS_MML_PLMN_TYPE_ENUM;
+    enum NAS_MML_LTE_CAPABILITY_STATUS_ENUM            enNAS_MML_LTE_CAPABILITY_STATUS_ENUM;
+    enum NAS_MML_RRC_SYS_SUBMODE_ENUM                  enNAS_MML_RRC_SYS_SUBMODE_ENUM;
+    enum NAS_MML_NETWORK_MSG_REL_VER_ENUM              enNAS_MML_NETWORK_MSG_REL_VER_ENUM;
+    enum NAS_MML_NETWORK_SGSN_REL_VER_ENUM             enNAS_MML_NETWORK_SGSN_REL_VER_ENUM;
+    enum NAS_MML_RESTRICTION_CHANGE_ENUM               enNAS_MML_RESTRICTION_CHANGE_ENUM;
+    enum NAS_MML_HPLMN_TYPE_ENUM                       enNAS_MML_HPLMN_TYPE_ENUM;
+    enum NAS_MML_REG_DOMAIN_ENUM                       enNAS_MML_REG_DOMAIN_ENUM;
+    enum NAS_MML_SINGLE_DOMAIN_REG_FAIL_ACTION_ENUM    enNAS_MML_SINGLE_DOMAIN_REG_FAIL_ACTION_ENUM;
+    enum NAS_MML_PS_REG_CONTAIN_DRX_PARA_ENUM          enNAS_MML_PS_REG_CONTAIN_DRX_PARA_ENUM;
+    enum NAS_MML_IMS_NORMAL_REG_STATUS_ENUM            enNAS_MML_IMS_NORMAL_REG_STATUS_ENUM;
+    enum NAS_MML_NW_IMS_VOICE_CAP_ENUM                 enNAS_MML_NW_IMS_VOICE_CAP_ENUM;
+    enum NAS_MML_AUTO_SRCH_FLG_TYPE_ENUM               enNAS_MML_AUTO_SRCH_FLG_TYPE_ENUM;
+    enum NAS_MML_CALL_MODE_ENUM                        enNAS_MML_CALL_MODE_ENUM;
+    enum NAS_MML_LMM_ACCESS_TYPE_ENUM                  enNAS_MML_LMM_ACCESS_TYPE_ENUM;
+    enum NAS_MML_CS_TRANSACTION_ENUM                   enNAS_MML_CS_TRANSACTION_ENUM;
+    enum NAS_MML_CALL_STATUS_ENUM                      enNAS_MML_CALL_STATUS_ENUM;
+    enum NAS_MML_SS_STATUS_ENUM                        enNAS_MML_SS_STATUS_ENUM;
+    enum NAS_MML_MT_CM_SRV_STATUS_ENUM                 enNAS_MML_MT_CM_SRV_STATUS_ENUM;
+    enum NAS_MML_MT_CSFB_PAGING_TIMER_STATUS_ENUM      enNAS_MML_MT_CSFB_PAGING_TIMER_STATUS_ENUM;
+    enum NAS_MML_SESSION_TYPE_ENUM                     enNAS_MML_SESSION_TYPE_ENUM;
+    enum NAS_MML_RAT_FORBIDDEN_LIST_SWITCH_FLAG_ENUM   enNAS_MML_RAT_FORBIDDEN_LIST_SWITCH_FLAG_ENUM;
+    enum NAS_MML_PLATFORM_SUPPORT_RAT_ENUM             enNAS_MML_PLATFORM_SUPPORT_RAT_ENUM;
+    enum NAS_MML_RAT_CAPABILITY_STATUS_ENUM            enNAS_MML_RAT_CAPABILITY_STATUS_ENUM;
+    enum NAS_MML_HIGH_PRIO_RAT_BG_SEARCH_PROC_LTE_ENUM enNAS_MML_HIGH_PRIO_RAT_BG_SEARCH_PROC_LTE_ENUM;
+    enum NAS_MML_CHANGE_REJ_TYPE_ENUM                  enNAS_MML_CHANGE_REJ_TYPE_ENUM;
+    enum NAS_MML_CARRY_EPLMN_SWITCH_FLAG_ENUM          enNAS_MML_CARRY_EPLMN_SWITCH_FLAG_ENUM;
+
+    /* NasEmmcPublic.h */
+    enum NAS_EMMC_USER_SPEC_PLMN_FLAG_ENUM             enNAS_EMMC_USER_SPEC_PLMN_FLAG_ENUM;
+
+    /* AppNasComm.h */
+    enum NAS_MM_RAT_TYPE_ENUM                          enNAS_MM_RAT_TYPE_ENUM;
+    enum NAS_MM_SEL_MODE_ENUM                          enNAS_MM_SEL_MODE_ENUM;
+    enum NAS_MM_UPDATE_STATE_ENUM                      NAS_MM_UPDATE_STATE_ENUM;
+    enum NAS_EMM_SOFT_USIM_AUTH_ALG_ENUM               NAS_EMM_SOFT_USIM_AUTH_ALG_ENUM;
+    enum NAS_MM_LRPLMNSI_ENUM                          NAS_MM_LRPLMNSI_ENUM;
+    enum NAS_LMM_UE_OPERATION_MODE_ENUM                NAS_LMM_UE_OPERATION_MODE_ENUM;
+    enum NAS_LMM_CS_SERVICE_ENUM                       NAS_LMM_CS_SERVICE_ENUM;
+    enum NAS_LMM_GU_UE_MODE_ENUM                       NAS_LMM_GU_UE_MODE_ENUM;
+    enum NAS_LMM_DISABLE_LTE_CAUSE_ENUM                NAS_LMM_DISABLE_LTE_CAUSE_ENUM;
+    enum NAS_LMM_SUP_ENUM                              NAS_LMM_SUP_ENUM;
+    enum NAS_LMM_SUP_VOICE_DOMAIN_ENUM                 NAS_LMM_SUP_VOICE_DOMAIN_ENUM;
+    enum NAS_LMM_SUP_SMS_DOMAIN_ENUM                   NAS_LMM_SUP_SMS_DOMAIN_ENUM;
+    enum NAS_EMM_USAGE_SETTING_ENUM                    NAS_EMM_USAGE_SETTING_ENUM;
+    enum NAS_LMM_VOICE_DOMAIN_ENUM                     NAS_LMM_VOICE_DOMAIN_ENUM;
+    enum NAS_MM_CELL_TYPE_ENUM                         NAS_MM_CELL_TYPE_ENUM;
+
+
+    /* ENUM End   */
+
+    /* EmmEsmInterface.h */
+    EMM_ESM_EST_REQ_STRU                            stEMM_ESM_EST_REQ_STRU;
+    EMM_ESM_EST_CNF_STRU                            stEMM_ESM_EST_CNF_STRU;
+    EMM_ESM_BEARER_STATUS_REQ_STRU                  stEMM_ESM_BEARER_STATUS_REQ_STRU;
+    EMM_ESM_STATUS_IND_STRU                         stEMM_ESM_STATUS_IND_STRU;
+    EMM_ESM_DATA_REQ_STRU                           stEMM_ESM_DATA_REQ_STRU;
+    EMM_ESM_DATA_IND_STRU                           stEMM_ESM_DATA_IND_STRU;
+    EMM_ESM_REL_REQ_STRU                            stEMM_ESM_REL_REQ_STRU;
+    EMM_ESM_REL_IND_STRU                            stEMM_ESM_REL_IND_STRU;
+    EMM_ESM_PDN_CON_RSP_STRU                        stEMM_ESM_PDN_CON_RSP_STRU;
+    EMM_ESM_PDN_CON_IND_STRU                        stEMM_ESM_PDN_CON_IND_STRU;
+    EMM_ESM_PDN_CON_SUCC_REQ_STRU                   stEMM_ESM_PDN_CON_SUCC_REQ_STRU;
+    EMM_ESM_BEARER_STATUS_IND_STRU                  stEMM_ESM_BEARER_STATUS_IND_STRU;
+    EMM_ESM_SUSPEND_RSP_STRU                        stEMM_ESM_SUSPEND_RSP_STRU;
+    EMM_ESM_SUSPEND_IND_STRU                        stEMM_ESM_SUSPEND_IND_STRU;
+    EMM_ESM_RESUME_RSP_STRU                         stEMM_ESM_RESUME_RSP_STRU;
+    EMM_ESM_RESUME_IND_STRU                         stEMM_ESM_RESUME_IND_STRU;
+    EMM_ESM_SAVE_ERRLOG_IND_STRU                    stEMM_ESM_SAVE_ERRLOG_IND_STRU;
+    EMM_ESM_BEARER_MODIFY_REQ_STRU                  stEMM_ESM_BEARER_MODIFY_REQ_STRU;
+    EMM_ESM_CLR_ESM_PROC_RES_NOTIFY_STRU            stEMM_ESM_CLR_ESM_PROC_RES_NOTIFY_STRU;
+    EMM_ESM_BEGIN_SESSION_NOTIFY_STRU               stEMM_ESM_BEGIN_SESSION_NOTIFY_STRU;
+    EMM_ESM_END_SESSION_NOTIFY_STRU                 stEMM_ESM_END_SESSION_NOTIFY_STRU;
+    EMM_ESM_PLMN_CHANGE_IND_STRU                    stEMM_ESM_PLMN_CHANGE_IND_STRU;
+    EMM_ESM_DATA_CNF_STRU                           stEMM_ESM_DATA_CNF_STRU;
+    EMM_ESM_START_NOTIFY_IND_STRU                   stEMM_ESM_START_NOTIFY_IND_STRU;
+    EMM_ESM_STOP_NOTIFY_IND_STRU                    stEMM_ESM_STOP_NOTIFY_IND_STRU;
+    EMM_ESM_CL_LOCAL_DETACH_NOTIFY_STRU             stEMM_ESM_CL_LOCAL_DETACH_NOTIFY_STRU;
+    EMM_ESM_CLEAR_CL_BEARER_NOTIFY_STRU             stEMM_ESM_CLEAR_CL_BEARER_NOTIFY_STRU;
+    EMM_ESM_DEACT_NON_EMC_BEARER_IND_STRU           stEMM_ESM_DEACT_NON_EMC_BEARER_IND_STRU;
+
+    /* EmmRabmInterface.h */
+    EMM_ERABM_REEST_REQ_STRU                        stEMM_ERABM_REEST_REQ_STRU;
+    EMM_ERABM_DRB_SETUP_IND_STRU                    stEMM_ERABM_DRB_SETUP_IND_STRU;
+    EMM_ERABM_REL_REQ_STRU                          stEMM_ERABM_REL_REQ_STRU;
+    EMM_ERABM_SUSPEND_RSP_STRU                      stEMM_ERABM_SUSPEND_RSP_STRU;
+    EMM_ERABM_RESUME_RSP_STRU                       stEMM_ERABM_RESUME_RSP_STRU;
+    EMM_ERABM_REEST_IND_STRU                        stEMM_ERABM_REEST_IND_STRU;
+    EMM_ERABM_REL_IND_STRU                          stEMM_ERABM_REL_IND_STRU;
+    EMM_ERABM_RRC_CON_REL_IND_STRU                  stEMM_ERABM_RRC_CON_REL_IND_STRU;
+    EMM_ERABM_SUSPEND_IND_STRU                      stEMM_ERABM_SUSPEND_IND_STRU;
+    EMM_ERABM_RESUME_IND_STRU                       stEMM_ERABM_RESUME_IND_STRU;
+
+    /* TcRabmInterface.h */
+
+    /* EmmTcInterface.h */
+    EMM_ETC_DATA_REQ_STRU                        stEMM_ETC_DATA_REQ_STRU;
+    EMM_ETC_REL_REQ_STRU                         stEMM_ETC_REL_REQ_STRU;
+    EMM_ETC_DATA_IND_STRU                        stEMM_ETC_DATA_IND_STRU;
+    EMM_ETC_REL_IND_STRU                         stEMM_ETC_REL_IND_STRU;
+
+    /* EmmLppInterface.h */
+    LPP_LMM_DATA_REQ_STRU                                 stLPP_LMM_DATA_REQ_STRU;
+    LMM_LPP_EST_CNF_STRU                                  stLMM_LPP_EST_CNF_STRU;
+    LMM_LPP_START_IND_STRU                                stLMM_LPP_START_IND_STRU;
+    LMM_LPP_STOP_IND_STRU                                 stLMM_LPP_STOP_IND_STRU;
+    LMM_LPP_CELL_CHANGE_IND                               stLMM_LPP_CELL_CHANGE_IND;
+    LMM_LPP_DATA_IND_STRU                                 stLMM_LPP_DATA_IND_STRU;
+    LMM_LPP_REL_IND_STRU                                  stLMM_LPP_REL_IND_STRU;
+    LPP_LMM_EST_REQ_STRU                                  stLPP_LMM_EST_REQ_STRU;
+    LMM_LPP_DATA_CNF_STRU                                 STLMM_LPP_DATA_CNF_STRU;
+
+    /* ImsaImsInterface.h */
+    IMSA_IMS_INPUT_CALL_MSG_STRU                  stIMSA_IMS_INPUT_CALL_MSG_STRU;
+    IMSA_IMS_INPUT_SMS_MSG_STRU                   stIMSA_IMS_INPUT_SMS_MSG_STRU;
+    IMSA_IMS_INPUT_SERVICE_MSG_STRU               stIMSA_IMS_INPUT_SERVICE_MSG_STRU;
+    IMSA_IMS_INPUT_SYSTEM_MSG_STRU                stIMSA_IMS_INPUT_SYSTEM_MSG_STRU;
+    IMSA_IMS_INPUT_PARA_MSG_STRU                  stIMSA_IMS_INPUT_PARA_MSG_STRU;
+    IMS_IMSA_OUTPUT_CALL_MSG_STRU                 stIMS_IMSA_OUTPUT_CALL_MSG_STRU;
+    IMS_IMSA_OUTPUT_SMS_MSG_STRU                  stIMS_IMSA_OUTPUT_SMS_MSG_STRU;
+    IMS_IMSA_OUTPUT_SERVICE_MSG_STRU              stIMS_IMSA_OUTPUT_SERVICE_MSG_STRU;
+    IMS_IMSA_OUTPUT_SYSTEM_MSG_STRU               stIMS_IMSA_OUTPUT_SYSTEM_MSG_STRU;
+    IMS_IMSA_OUTPUT_PARA_MSG_STRU                 stIMS_IMSA_OUTPUT_PARA_MSG_STRU;
+    IMS_IMSA_OUTPUT_NV_INFO_MSG_STRU              stIMS_IMSA_OUTPUT_NV_INFO_MSG_STRU;
+    IMSA_IMS_INPUT_NV_INFO_MSG_STRU               stIMSA_IMS_INPUT_NV_INFO_MSG_STRU;
+	
+	/* ImsaImsEvent */
+
+
+    /* imsaintrainterface.h */
+    IMSA_REG_REG_REQ_STRU                         stIMSA_REG_REG_REQ_STRU;
+    IMSA_REG_DEREG_REQ_STRU                       stIMSA_REG_DEREG_REQ_STRU;
+    IMSA_REG_REG_IND_STRU                         stIMSA_REG_REG_IND_STRU;
+    IMSA_REG_DEREG_IND_STRU                       stIMSA_REG_DEREG_IND_STRU;
+    IMSA_CONN_SETUP_REQ_STRU                      stIMSA_CONN_SETUP_REQ_STRU;
+    IMSA_CONN_REL_REQ_STRU                        stIMSA_CONN_REL_REQ_STRU;
+    IMSA_CONN_SETUP_IND_STRU                      stIMSA_CONN_SETUP_IND_STRU;
+    IMSA_CONN_REL_IND_STRU                        stIMSA_CONN_REL_IND_STRU;
+    IMSA_CONN_MODIFY_IND_STRU                     stIMSA_CONN_MODIFY_IND_STRU;
+    IMSA_NRM_CALL_SRV_STATUS_IND_STRU             stIMSA_NRM_CALL_SRV_STATUS_IND_STRU;
+    IMSA_EMC_CALL_SRV_STATUS_IND_STRU             stIMSA_EMC_CALL_SRV_STATUS_IND_STRU;
+    IMSA_CALL_RESULT_ACTION_IND_STRU              stIMSA_CALL_RESULT_ACTION_IND_STRU;
+    IMSA_PRINT_NIC_PDP_INFO_STRU                  stIMSA_PRINT_NIC_PDP_INFO_STRU;
+    IMSA_CALL_SRVCC_SUCC_IND_STRU                 stIMSA_CALL_SRVCC_SUCC_IND_STRU;
+    IMSA_HIFI_DATA_INFO_IND_STRU                  stIMSA_HIFI_DATA_INFO_IND_STRU;
+
+    /* ImsaEntity.h */
+    IMSA_PDN_REJ_FORB_NV_INFO_STRU                stIMSA_PDN_REJ_FORB_NV_INFO_STRU;
+    IMSA_OM_CONN_FORBIDDEN_INFO                   stIMSA_OM_CONN_FORBIDDEN_INFO;
+    IMSA_TIMER_INFO_STRU                          stIMSA_TIMER_INFO_STRU;
+    IMSA_TIMER_STRU                               stIMSA_TIMER_STRU;
+
+    /* NasLppOm.h */
+    NAS_LPP_ASN_FAIL_STRU                           stNAS_LPP_ASN_FAIL_STRU;
+    NAS_LPP_OM_FSM_STATE_STRU                       stNAS_LPP_OM_FSM_STATE_STRU;
+    NAS_LPP_OM_TIMER_START_STRU                     stNAS_LPP_OM_TIMER_START_STRU;
+    NAS_LPP_OM_TIMER_STOP_STRU                      stNAS_LPP_OM_TIMER_STOP_STRU;
+    NAS_LPP_OM_TIMER_EXPIRE_STRU                    stNAS_LPP_OM_TIMER_EXPIRE_STRU;
+    NAS_LPP_OM_NV_STRU                              stNAS_LPP_OM_NV_STRU;
+    NAS_LPP_OM_CONN_MANAGE_STRU                     stNAS_LPP_OM_CONN_MANAGE_STRU;
+    NAS_LPP_OM_SESSION_MALLOC_SUCC_STRU             stNAS_LPP_OM_SESSION_MALLOC_SUCC_STRU;
+    NAS_LPP_OM_SESSION_MALLOC_FAIL_STRU             stNAS_LPP_OM_SESSION_MALLOC_FAIL_STRU;
+    NAS_LPP_OM_SESSION_RELEASE_STRU                 stNAS_LPP_OM_SESSION_RELEASE_STRU;
+    NAS_LPP_OM_TRANS_MALLOC_SUCC_STRU               stNAS_LPP_OM_TRANS_MALLOC_SUCC_STRU;
+    NAS_LPP_OM_TRANS_MALLOC_FAIL_STRU               stNAS_LPP_OM_TRANS_MALLOC_FAIL_STRU;
+    NAS_LPP_OM_TRANS_RELEASE_STRU                   stNAS_LPP_OM_TRANS_RELEASE_STRU;
+    NAS_LPP_OM_ADD_TRANS_TO_SESSION_STRU            stNAS_LPP_OM_ADD_TRANS_TO_SESSION_STRU;
+    NAS_LPP_OM_COMM_CFG_MALLOC_SUCC_STRU            stNAS_LPP_OM_COMM_CFG_MALLOC_SUCC_STRU;
+    NAS_LPP_OM_COMM_CFG_MALLOC_FAIL_STRU            stNAS_LPP_OM_COMM_CFG_MALLOC_FAIL_STRU;
+    NAS_LPP_OM_COMM_CFG_RELEASE_STRU                stNAS_LPP_OM_COMM_CFG_RELEASE_STRU;
+    NAS_LPP_OM_UP_MSG_BUFF_MALLOC_SUCC_STRU         stNAS_LPP_OM_UP_MSG_BUFF_MALLOC_SUCC_STRU;
+    NAS_LPP_OM_UP_MSG_BUFF_MALLOC_FAIL_STRU         stNAS_LPP_OM_UP_MSG_BUFF_MALLOC_FAIL_STRU;
+    NAS_LPP_OM_UP_MSG_BUFF_REL_STRU                 stNAS_LPP_OM_UP_MSG_BUFF_REL_STRU;
+    NAS_LPP_OM_ADD_LOC_TECH_STRU                    stNAS_LPP_OM_ADD_LOC_TECH_STRU;
+    NAS_LPP_OM_DEL_LOC_TECH_STRU                    stNAS_LPP_OM_DEL_LOC_TECH_STRU;
+    NAS_LPP_OM_MTA_ASSIST_DATA_STRU                 stNAS_LPP_OM_MTA_ASSIST_DATA_STRU;
+    NAS_LPP_OM_MTA_LOC_INFO_REQ_STRU                stNAS_LPP_OM_MTA_LOC_INFO_REQ_STRU;
+    NAS_LPP_OM_INTRA_DATA_CNF_STRU                  stNAS_LPP_OM_INTRA_DATA_CNF_STRU;
+    NAS_LPP_OM_MTA_LOC_INFO_CNF_STRU                stNAS_LPP_OM_MTA_LOC_INFO_CNF_STRU;
+
+    /* NasLppIntraInterface.h */
+    NAS_LPP_INTRA_DATA_CNF_STRU                     stNAS_LPP_INTRA_DATA_CNF_STRU;
+
+    /* EtcLppInterface.h */
+    ETC_LPP_RESET_POSTION_INFO_STRU                 stETC_LPP_RESET_POSTION_INFO_STRU;
+
+    /* NasBackOffAlgMain.h */
+    NAS_BACKOFF_LOG_INIT_OPERATE_INFO_STRU          stNAS_BACKOFF_LOG_INIT_OPERATE_INFO_STRU;
+    NAS_BACKOFF_LOG_NV_INFO_STRU                    stNAS_BACKOFF_LOG_NV_INFO_STRU;
+    NAS_BACKOFF_TIMER_INFO_STRU                     stNAS_BACKOFF_TIMER_INFO_STRU;
+    NAS_BACKOFF_RESET_OPERATE_INFO_STRU             stNAS_BACKOFF_RESET_OPERATE_INFO_STRU;
+    NAS_BACKOFF_Maintain_OPERATE_INFO_STRU          stNAS_BACKOFF_Maintain_OPERATE_INFO_STRU;
+    NAS_BACKOFF_JUDGMENT_OPERATE_INFO_STRU          stNAS_BACKOFF_JUDGMENT_OPERATE_INFO_STRU;
+    NAS_BACKOFF_LOG_APN_ENTITY_LIST_STRU            stNAS_BACKOFF_LOG_APN_ENTITY_LIST_STRU;
+    NAS_BACKOFF_LOG_COMM_INFO_STRU                  stNAS_BACKOFF_LOG_COMM_INFO_STRU;
+
+    /* ImsaPublic.h */
+
+    /*  NasLcsOm.h */
+
+
+
+
+    /* RrcRrcDebug */
+    //LRRC_DEBUG_CELL_SELECT_FLOW_INFO_IND     stLRRC_DEBUG_CELL_SELECT_FLOW_INFO_IND;
+    //LRRC_DEBUG_CELL_RESELECT_FLOW_INFO_IND   stLRRC_DEBUG_CELL_RESELECT_FLOW_INFO_IND;
+
+
+    /* LNasReplayProc.h */
+    NAS_LMM_LOG_CARD_IMSI_INFO_STRU                       stNAS_LMM_LOG_CARD_IMSI_INFO_STRU;
+    NAS_LMM_LOG_USIMM_SERVICE_INFO_STRU                   stNAS_LMM_LOG_USIMM_SERVICE_INFO_STRU;
+    NAS_LMM_LOG_GU_INFO_STRU                              stNAS_LMM_LOG_GU_INFO_STRU;
+    NAS_LMM_LOG_PUB_INFO_STRU                             stNAS_LMM_LOG_PUB_INFO_STRU;
+    NAS_LMM_LOG_TIN_INFO_STRU                             stNAS_LMM_LOG_TIN_INFO_STRU;
+    NAS_LMM_LOG_MS_NETWORK_CAPACILITY_INFO_STRU           stNAS_LMM_LOG_MS_NETWORK_CAPACILITY_INFO_STRU;
+    NAS_LMM_LOG_UEIDTMSI_INFO_STRU                        stNAS_LMM_LOG_UEIDTMSI_INFO_STRU;
+    NAS_LMM_LOG_CS_SERVICE_FLAG_INFO_STRU                 stNAS_LMM_LOG_CS_SERVICE_FLAG_INFO_STRU;
+    NAS_LMM_LOG_ADD_UPDATE_RSLT_INFO_STRU                 stNAS_LMM_LOG_ADD_UPDATE_RSLT_INFO_STRU;
+    NAS_LMM_LOG_PS_BEAR_CTX_INFO_STRU                     stNAS_LMM_LOG_PS_BEAR_CTX_INFO_STRU;
+    NAS_LMM_LOG_PSBER_EXIST_BEF_ISRACT_INFO_STRU          stNAS_LMM_LOG_PSBER_EXIST_BEF_ISRACT_INFO_STRU;
+    NAS_LMM_LOG_PSREG_CONTAINDRX_INFO_STRU                stNAS_LMM_LOG_PSREG_CONTAINDRX_INFO_STRU;
+    NAS_LMM_LOG_CLASSMARK2_INFO_STRU                      stNAS_LMM_LOG_CLASSMARK2_INFO_STRU;
+    NAS_LMM_LOG_CS_ATTACH_ALLOW_FLG_INFO_STRU             stNAS_LMM_LOG_CS_ATTACH_ALLOW_FLG_INFO_STRU;
+    NAS_LMM_LOG_PS_ATTACH_ALLOW_FLG_INFO_STRU             stNAS_LMM_LOG_PS_ATTACH_ALLOW_FLG_INFO_STRU;
+    NAS_LMM_LOG_KDF_KEY_INFO_STRU                         stNAS_LMM_LOG_KDF_KEY_INFO_STRU;
+    NAS_LMM_LOG_EMERGENCY_NUMLIST_INFO_STRU               stNAS_LMM_LOG_EMERGENCY_NUMLIST_INFO_STRU;
+    NAS_LMM_DSDS_PREPROC_MSG_INFO_STRU                    stNAS_LMM_DSDS_PREPROC_MSG_INFO_STRU;
+    NAS_LMM_DSDS_SESSION_MSG_INFO_STRU                    stNAS_LMM_DSDS_SESSION_MSG_INFO_STRU;
+    NAS_LMM_LOG_NON_DRX_TIMER_INFO_STRU                   stNAS_LMM_LOG_NON_DRX_TIMER_INFO_STRU;
+    NAS_LMM_LOG_MS_MODE_INFO_STRU                         stNAS_LMM_LOG_MS_MODE_INFO_STRU;
+
+    /* "NasLmmPubMOm.h */
+    NAS_LMM_OM_LOG_ROAMING_REJECT_NO_RETRY_FLG_STRU       stNAS_LMM_OM_LOG_ROAMING_REJECT_NO_RETRY_FLG_STRU;
+    NAS_LMM_OM_LOG_TAU_START_TYPE_INFO_STRU               stNAS_LMM_OM_LOG_TAU_START_TYPE_INFO_STRU;
+    NAS_LMM_OM_LOG_SER_START_TYPE_INFO_STRU               stNAS_LMM_OM_LOG_SER_START_TYPE_INFO_STRU;
+    NAS_LMM_OM_LOG_ANY_CELL_JUDGING_INFO_STRU             stNAS_LMM_OM_LOG_ANY_CELL_JUDGING_INFO_STRU;
+    NAS_OM_LOG_SDF_PARA_INFO_STRU                         stNAS_OM_LOG_SDF_PARA_INFO_STRU;
+    NAS_EMM_TIMER_INFO_STRU                               stNAS_EMM_TIMER_INFO_STRU;
+    NAS_EMM_OM_GRADUAL_FORB_TA_INFO_STRU                  stNAS_EMM_OM_GRADUAL_FORB_TA_INFO_STRU;
+    NAS_EMM_OM_GRADUAL_FORB_PARA_LOG_STRU                 stNAS_EMM_OM_GRADUAL_FORB_PARA_LOG_STRU;
+    NAS_EMM_DBG_INFO_IND_STRU                             stNAS_EMM_DBG_INFO_IND_STRU;
+    NAS_ERABM_TIMER_INFO_STRU                             stNAS_ERABM_TIMER_INFO_STRU;
+    NAS_LMM_OM_ATTACH_SUCC_RATIO_INFO_MSG_STRU	          stNAS_LMM_OM_ATTACH_SUCC_RATIO_INFO_MSG_STRU;
+    NAS_LMM_OM_TAU_SUCC_RATIO_INFO_MSG_STRU               stNAS_LMM_OM_TAU_SUCC_RATIO_INFO_MSG_STRU;
+    NAS_LMM_OM_SER_SUCC_RATIO_INFO_MSG_STRU	              stNAS_LMM_OM_SER_SUCC_RATIO_INFO_MSG_STRU;
+    NAS_LMM_OM_LOG_NW_IMS_VOICE_CAP_STRU                  stNAS_LMM_OM_LOG_NW_IMS_VOICE_CAP_STRU;
+    NAS_EMM_OM_REJ19_CNT_LOG_STRU                         stNAS_EMM_OM_REJ19_CNT_LOG_STRU;
+    NAS_LMM_OM_LOG_STATE_CHANGE_INFO_STRU                 stNAS_LMM_OM_LOG_STATE_CHANGE_INFO_STRU;
+    NAS_LMM_OM_LOG_EPS_LOC_INFO_STRU                      stNAS_LMM_OM_LOG_EPS_LOC_INFO_STRU;
+    NAS_LMM_OM_LOG_EPS_SEC_CONTEXT_INFO_STRU              stNAS_LMM_OM_LOG_EPS_SEC_CONTEXT_INFO_STRU;
+    NAS_EMM_OM_DAM_PARA_LOG_STRU                          stNAS_EMM_OM_DAM_PARA_LOG_STRU;
+
+
+    /* NasEsmNwMsgEncode.h */
+    NAS_ESM_OM_LOG_ENCODE_CN_MSG_FAIL_STRU                stNAS_ESM_OM_LOG_ENCODE_CN_MSG_FAIL_STRU;
+
+    /* NasEsmNwMsgProc.h */
+    NAS_ESM_OM_LOG_VERIFY_CN_MSG_FAIL_STRU                stNAS_ESM_OM_LOG_VERIFY_CN_MSG_FAIL_STRU;
+
+    /*NasEmmSecuProtect.h */
+    NAS_LMM_OM_LOG_SECU_VERIFY_FAIL_STRU                  stNAS_LMM_OM_LOG_SECU_VERIFY_FAIL_STRU;
+
+    /* NasEmmTAUProc.h */
+    NAS_LMM_OM_LOG_ACTIVE_FLAG_INFO_STRU                  stNAS_LMM_OM_LOG_ACTIVE_FLAG_INFO_STRU;
+
+
+
+    /* NasLppPublic.h */
+
+    /* TPsTPhyInterface.h */
+    /* TdsDsdsComm.h */
+    /* TdsL2Om.h */
+    //RABM_PDCP_TRACE_DATA_REQ_STRU                 stRABM_PDCP_TRACE_DATA_REQ_STRU;
+    //TDS_TRACE_PDCP_RABM_DATA_IND_STRU            stTDS_TRACE_PDCP_RABM_DATA_IND_STRU;
+
+
+    /* NasLcsOm.h */
+    NAS_LCS_OM_ENTITY_STATE_INFO_STRU	                stNAS_LCS_OM_ENTITY_STATE_INFO_STRU;
+    NAS_LCS_OM_CONN_STATE_INFO_STRU		                stNAS_LCS_OM_CONN_STATE_INFO_STRU;
+    NAS_LCS_OM_TIMER_START_STRU			                stNAS_LCS_OM_TIMER_START_STRU;
+    NAS_LCS_OM_TIMER_STOP_STRU			                stNAS_LCS_OM_TIMER_STOP_STRU;
+    NAS_LCS_OM_TIMER_EXPIRE_STRU		                stNAS_LCS_OM_TIMER_EXPIRE_STRU;
+    NAS_LCS_OM_NV_COMMON_CONFIG_STRU	                stNAS_LPP_OM_NV_COMMON_CONFIG_STRU;
+    NAS_LCS_OM_ENITY_INFO_STRU			                stNAS_LCS_OM_ENITY_INFO_STRU;
+    NAS_LCS_OM_DECODE_DBG_INFO			                stNAS_LCS_OM_DECODE_DBG_INFO;
+
+    /* EsmRabmInterface.h */
+    ESM_ERABM_REL_REQ_STRU                               stESM_ERABM_REL_REQ_STRU;
+    ESM_ERABM_BEARER_STATUS_REQ_STRU                     stESM_ERABM_BEARER_STATUS_REQ_STRU;
+    ESM_ERABM_ACT_IND_STRU                               stESM_ERABM_ACT_IND_STRU;
+    ESM_ERABM_MDF_IND_STRU                               stESM_ERABM_MDF_IND_STRU;
+    ESM_ERABM_DEACT_IND_STRU                             stESM_ERABM_DEACT_IND_STRU;
+    ESM_ERABM_REL_IND_STRU                               stESM_ERABM_REL_IND_STRU;
+    ESM_ERABM_CLEAR_CL_BEARER_NOTIFY_STRU                stESM_ERABM_CLEAR_CL_BEARER_NOTIFY_STRU;
+
+    /* NasERabmPublic.h */
+    NAS_ERABM_START_TIMER_STRU                      stNAS_ERABM_START_TIMER_STRU;
+
+
+    /* LppMtaInterface.h */
+    LPP_MTA_GNSS_CAPABITY_REQ_STRU                  stLPP_MTA_GNSS_CAPABITY_REQ_STRU;
+    LPP_MTA_GNSS_PROVIDE_ASSIST_DATA_CNF_STRU       stLPP_MTA_GNSS_PROVIDE_ASSIST_DATA_CNF_STRU;
+    LPP_MTA_GNSS_PROVIDE_ASSIST_DATA_IND_STRU       stLPP_MTA_GNSS_PROVIDE_ASSIST_DATA_IND_STRU;
+    LPP_MTA_GNSS_LOCATION_INFO_REQ_STRU             stLPP_MTA_GNSS_LOCATION_INFO_REQ_STRU;
+    LPP_MTA_RESET_GNSS_ASSIST_DATA_STRU             stLPP_MTA_RESET_GNSS_ASSIST_DATA_STRU;
+    LPP_MTA_GNSS_ERR_IND_STRU                       stLPP_MTA_GNSS_ERR_IND_STRU;
+    LPP_MTA_GNSS_MEAS_ABORT_IND_STRU                stLPP_MTA_GNSS_MEAS_ABORT_IND_STRU;
+    MTA_LPP_GNSS_PROVIDE_CAPABITY_CNF_STRU          stMTA_LPP_GNSS_PROVIDE_CAPABITY_CNF_STRU;
+    MTA_LPP_GNSS_ASSIST_DATA_REQ_STRU               stMTA_LPP_GNSS_ASSIST_DATA_REQ_STRU;
+    MTA_LPP_GNSS_RROVIDE_LOCATION_INFO_IND_STRU     stMTA_LPP_GNSS_RROVIDE_LOCATION_INFO_IND_STRU;
+    MTA_LPP_UP_CAPABILITY_REQ_STRU                  stMTA_LPP_UP_CAPABILITY_REQ_STRU;
+    MTA_LPP_UP_OTDOA_ASSIST_DATA_NTY_STRU           stMTA_LPP_UP_OTDOA_ASSIST_DATA_NTY_STRU;
+    MTA_LPP_UP_MEAS_NTY_STRU                        stMTA_LPP_UP_MEAS_NTY_STRU;
+    MTA_LPP_UP_MEAS_ABORT_NTY_STRU                  stMTA_LPP_UP_MEAS_ABORT_NTY_STRU;
+    LPP_MTA_UP_CAPABILITY_CNF_STRU                  stLPP_MTA_UP_CAPABILITY_CNF_STRU;
+    LPP_MTA_UP_NO_OTDOA_ASSIST_DATA_IND_STRU        stLPP_MTA_UP_NO_OTDOA_ASSIST_DATA_IND_STRU;
+    LPP_MTA_UP_MEAS_IND_STRU                        stLPP_MTA_UP_MEAS_IND_STRU;
+    TLPS_SET_TLPS_PRINT2LAYER_REQ_STRU              stTLPS_SET_TLPS_PRINT2LAYER_REQ_STRU;
+
+    /* OmEmmInterface.h */
+    OM_EMM_INFO_REPORT_REQ_STRU                        stOM_EMM_INFO_REPORT_REQ_STRU;
+    OM_EMM_STATE_INFO_STRU                             stOM_EMM_STATE_INFO_STRU;
+    OM_EMM_INFO_REPORT_CNF_STRU                        stOM_EMM_INFO_REPORT_CNF_STRU;
+    OMEmmInterface_MSG                                 stOMEmmInterface_MSG;
+
+    /* OmEsmInterface.h */
+    OM_ESM_INFO_REPORT_REQ_STRU                        stOM_ESM_INFO_REPORT_REQ_STRU;
+    OM_ESM_INFO_REPORT_CNF_STRU                        stOM_ESM_INFO_REPORT_CNF_STRU;
+    OMEsmInterface_MSG                                 stOMEsmInterface_MSG;
+    OM_ESM_STATE_INFO_STRU                             stOM_ESM_STATE_INFO_STRU;
+    DIAG_ESM_INFO_IND_STRU                             stDIAG_ESM_INFO_IND_STRU;
+
+    /* RrcRrcDebug.h*/
+    //LRRC_KPI_EST_SUCC_RATIO_IND_STRU                  stLRRC_KPI_EST_SUCC_RATIO_IND_STRU;
+    //LRRC_KPI_REEST_SUCC_RATIO_IND_STRU                stLRRC_KPI_REEST_SUCC_RATIO_IND_STRU;
+    //LRRC_KPI_SUCC_RATIO_IND_STRU                      stLRRC_KPI_SUCC_RATIO_IND_STRU;
+    //LRRC_DELAY_INFO_IND_STRU                          stLRRC_DELAY_INFO_IND_STRU;
+
+
+    /* LcsLppInterface */
+    LCS_LPP_GNSS_ASSISTDATA_CNF_STRU                    stLCS_LPP_GNSS_ASSISTDATA_CNF_STRU;
+    LCS_LPP_LOCATION_INFO_NTF_STRU                      stLCS_LPP_LOCATION_INFO_NTF_STRU;
+    LPP_LCS_GNSS_ASSISTDATA_REQ_STRU                    stLPP_LCS_GNSS_ASSISTDATA_REQ_STRU;
+
+    /* LmmLcsInterface */
+    LCS_LMM_EST_REQ_STRU                                stLCS_LMM_EST_REQ_STRU;
+    LCS_LMM_DATA_REQ_STRU                               stLCS_LMM_DATA_REQ_STRU;
+    LMM_LCS_EST_CNF_STRU                                stLMM_LCS_EST_CNF_STRU;
+    LMM_LCS_DATA_CNF_STRU                               stLMM_LCS_DATA_CNF_STRU;
+    LMM_LCS_DATA_IND_STRU                               stLMM_LCS_DATA_IND_STRU;
+    LMM_LCS_POS_CAP_INFO_IND_STRU                       stLMM_LCS_POS_CAP_INFO_IND_STRU;
+    LMM_LCS_REL_IND_STRU                                stLMM_LCS_REL_IND_STRU;
+
+
+    /* NasLcsTimerMsgProc.h */
+    NAS_LCS_TIMER_INFO_STRU                             stNAS_LCS_TIMER_INFO_STRU;
+
+    /* NasEsmPublic.h */
+    NAS_ESM_TIMER_STRU                                  stNAS_ESM_TIMER_STRU;
+
+    /* MmaMsccInterface */
+    MSCC_MMA_START_CNF_STRU	                            stMSCC_MMA_START_CNF_STRU;
+    MSCC_MMA_IMS_DEREG_CNF_STRU                         stMSCC_MMA_IMS_DEREG_CNF_STRU;
+
+    /* ImsaMsccInterface.h */
+    MSCC_IMSA_START_REQ_STRU                            stMSCC_IMSA_START_REQ_STRU;
+    MSCC_IMSA_STOP_REQ_STRU                             stMSCC_IMSA_STOP_REQ_STRU;
+    MSCC_IMSA_DEREGISTER_REQ_STRU                       stMSCC_IMSA_DEREGISTER_REQ_STRU;
+    MSCC_IMSA_SERVICE_CHANGE_IND_STRU                   stMSCC_IMSA_SERVICE_CHANGE_IND_STRU;
+    MSCC_IMSA_CAMP_INFO_CHANGE_IND_STRU                 stMSCC_IMSA_CAMP_INFO_CHANGE_IND_STRU;
+    MSCC_IMSA_REG_REQ_STRU                              stMSCC_IMSA_REG_REQ_STRU;
+    IMSA_MSCC_START_CNF_STRU                            stIMSA_MSCC_START_CNF_STRU;
+    IMSA_MSCC_STOP_CNF_STRU                             stIMSA_MSCC_STOP_CNF_STRU;
+    IMSA_MSCC_DEREGISTER_CNF_STRU                       stIMSA_MSCC_DEREGISTER_CNF_STRU;
+    IMSA_MSCC_IMS_VOICE_CAP_NOTIFY_STRU                 stIMSA_MSCC_IMS_VOICE_CAP_NOTIFY_STRU;
+    IMSA_MSCC_REG_CNF_STRU                              stIMSA_MSCC_REG_CNF_STRU;
+
+    /* TdmacCodecInterface.h */
+    TDMACVOICE_MAC_VOICE_MODE_SET_IND_STRU              stTDMACVOICE_MAC_VOICE_MODE_SET_IND_STRU;
+    TDMACVOICE_MAC_VOICE_MODE_CHANGE_IND_STRU           stTDMACVOICE_MAC_VOICE_MODE_CHANGE_IND_STRU;
+    TDMACVOICE_VOICE_MAC_MODE_SET_RSP_STRU	            stTDMACVOICE_VOICE_MAC_MODE_SET_RSP_STRU;
+    TDMACVOICE_VOICE_MAC_MODE_CHANGE_RSP_STRU           stTDMACVOICE_VOICE_MAC_MODE_CHANGE_RSP_STRU;
+    TDMACVOICE_VOICE_MAC_AMR_TYPE_REQ_STRU	            stTDMACVOICE_VOICE_MAC_AMR_TYPE_REQ_STRU;
+
+    /* MsccMmcInterface.h */
+    MSCC_MMC_PLMN_USER_RESEL_REQ_STRU           		stMSCC_MMC_PLMN_USER_RESEL_REQ_STRU;
+    MMC_MSCC_PLMN_RESEL_CNF_STRU                		stMMC_MSCC_PLMN_RESEL_CNF_STRU;
+
+    /* other */
+    /* NasEsmOmMsgProc.h */
+    NAS_ESM_OM_LOG_REG_CID_INFO_STRU            		stNAS_ESM_OM_LOG_REG_CID_INFO_STRU;
+
+    /* NasERabmIpFilter.h */
+    NAS_ERABM_OM_LOG_IPF_FILTER_INFO_STRU               stNAS_ERABM_OM_LOG_IPF_FILTER_INFO_STRU;
+    NAS_ERABM_OM_LOG_CDS_FILTER_INFO_STRU               stNAS_ERABM_OM_LOG_CDS_FILTER_INFO_STRU;
+
+    /* NasEsmEhsmMsgProc.h */
+    //NAS_ESM_OM_EHRPD_PDN_ENTITY_STRU                    stNAS_ESM_OM_EHRPD_PDN_ENTITY_STRU;
+    //NAS_ESM_OM_EHRPD_PDN_ENTITY_NUM_STRU                stNAS_ESM_OM_EHRPD_PDN_ENTITY_NUM_STRU;
+
+    /* NasEsmNwMsgDecode.h */
+    NAS_ESM_OM_LOG_DECODE_CN_MSG_FAIL_STRU              stNAS_ESM_OM_LOG_DECODE_CN_MSG_FAIL_STRU;
+
+    /* NasEmmPubUCnMsgDecode.h */
+    NAS_LMM_OM_LOG_CN_MSG_DECODE_FAIL_STRU              stNAS_LMM_OM_LOG_CN_MSG_DECODE_FAIL_STRU;
+
+    /* NasEmmcPublic.h */
+    NAS_EMMC_OM_LOG_FORBIDDEN_INFO_STRU                 stNAS_EMMC_OM_LOG_FORBIDDEN_INFO_STRU;
+
+    /* AppNasComm.h*/
+
+    /* L2_OM_KEYEVENT_INFO_STRU                           stL2_OM_KEYEVENT_INFO_STRU; */
+}

@@ -1,0 +1,8 @@
+
+
+/ {
+    hisi_atfdriver: atfdriver {
+        compatible = "hisilicon, atfdriver";
+        hisi,bl31-share-mem = <0x1000 0x400>;
+    };
+};

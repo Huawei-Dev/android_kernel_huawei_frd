@@ -1,0 +1,12 @@
+config ARCH_HISI_MAXFREQ
+	bool "Hisilicon platform cpu max freq recognition"
+	depends on PM_OPP
+	default n
+	help
+	  Hisilicon platform cpu max freq recognition.
+config HISI_ENABLE_GET_VAL
+  bool "Hisilicon get cpufreq param"
+  default n
+  help
+    Hisilicon get cpufreq param.
+

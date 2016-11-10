@@ -1,0 +1,5 @@
+config HW_PTM
+    boolean "Huawei Power Thermal Monitor"
+    default n
+    help
+        Huawei PTM, please choose it.

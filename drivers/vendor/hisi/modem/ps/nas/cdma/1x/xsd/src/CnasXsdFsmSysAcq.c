@@ -1,0 +1,5115 @@
+
+
+/*****************************************************************************
+  1 头文件包含
+*****************************************************************************/
+#include  "CnasCcb.h"
+#include  "CnasPrlApi.h"
+#include  "CnasXsdComFunc.h"
+#include  "CnasXsdSndInternalMsg.h"
+#include  "CnasXsdSndMscc.h"
+#include  "CnasXsdSndCas.h"
+#include  "CnasXsdFsmSysAcq.h"
+#include  "CnasXsdFsmSysAcqTbl.h"
+#include  "CnasXsdSysAcqStrategy.h"
+#include  "CnasMntn.h"
+#include  "CnasXsdMntn.h"
+#include  "CnasTimerMgmt.h"
+#include  "CnasXsdSndXreg.h"
+
+#include "CnasXsdSndXcc.h"
+
+#include "NasMntn.h"
+#include "OmApi.h"
+
+#ifdef  __cplusplus
+#if  __cplusplus
+extern "C"{
+#endif
+#endif
+
+#define THIS_FILE_ID                    PS_FILE_ID_CNAS_XSD_FSM_SYS_ACQ_C
+
+#if (FEATURE_ON == FEATURE_UE_MODE_CDMA)
+
+/*****************************************************************************
+  2 全局变量定义
+*****************************************************************************/
+EXTERN VOS_UINT32                       g_CtrlCallRelScanList;
+
+/*****************************************************************************
+  3 函数定义
+*****************************************************************************/
+/*lint -save -e958*/
+
+VOS_UINT32 CNAS_XSD_RcvMsccSysAcqReq_SysAcq_Init(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    CNAS_XSD_SCAN_CHANNEL_LIST_STRU    *pstScanList = VOS_NULL_PTR;
+    CNAS_PRL_FREQENCY_CHANNEL_STRU      astDstChan[CNAS_CAS_1X_MAX_FREQ_NUM];
+    VOS_UINT16                          usCurScanListIndex;
+    VOS_UINT16                          usDstChanNum;
+    MSCC_XSD_SYSTEM_ACQUIRE_REQ_STRU   *pstSysAcqReq = VOS_NULL_PTR;
+    CNAS_XSD_SYS_ACQ_SCENE_ENUM_UINT32  enScanScene;
+    VOS_UINT32                          ulWaitCasSyncCnfTimerLen;
+
+    enScanScene  = CNAS_XSD_SYS_ACQ_SCENE_BUTT;
+    usDstChanNum = 0;
+    NAS_MEM_SET_S(&astDstChan[0],
+                  sizeof(CNAS_PRL_FREQENCY_CHANNEL_STRU) * CNAS_CAS_1X_MAX_FREQ_NUM,
+                  0x00,
+                  sizeof(CNAS_PRL_FREQENCY_CHANNEL_STRU) * CNAS_CAS_1X_MAX_FREQ_NUM);
+
+#if (FEATURE_PTM == FEATURE_ON)
+    CNAS_XSD_RecordChr1xOosSrchInfo();
+#endif
+
+    /* 保存入口消息 */
+    CNAS_XSD_SaveCurEntryMsg(ulEventType, pstMsg);
+
+    pstScanList = CNAS_XSD_GetScanChanListAddr();
+
+    /* 构造scan list */
+    pstSysAcqReq = (MSCC_XSD_SYSTEM_ACQUIRE_REQ_STRU*)pstMsg;
+
+    /* enSysAcqType等于NORMAL，表示是正常驻留请求，否则，是无卡开机的X模初搜，只为了获取当前手机的位置信息
+       只同步电信常用频点，到返回频点同步相同后结束，不等待系统消息
+    */
+    if (MSCC_XSD_SYS_ACQ_TYPE_NORMAL == pstSysAcqReq->enSysAcqType)
+    {
+        CNAS_XSD_BuildScanChanList(CNAS_XSD_SYS_ACQ_SCENE_SWITCH_ON, 0, VOS_NULL_PTR, pstScanList);
+
+        enScanScene = CNAS_XSD_SYS_ACQ_SCENE_SWITCH_ON;
+    }
+    else
+    {
+        CNAS_XSD_BuildScanChanList(CNAS_XSD_SYS_ACQ_SCENE_POWER_ON_INIT_SEARCH, 0, VOS_NULL_PTR, pstScanList);
+
+        enScanScene = CNAS_XSD_SYS_ACQ_SCENE_POWER_ON_INIT_SEARCH;
+    }
+
+    /* 构造的scan list为空 */
+    if (0 == pstScanList->usTotalNum)
+    {
+        /* 清空CCB中存储的1X系统信息 */
+        CNAS_CCB_Init1xSysInfo();
+
+        if (VOS_TRUE == CNAS_XSD_IsAcquireAvoidSysNeeded(enScanScene))
+        {
+            CNAS_XSD_SetAvoidSysAcqListFlg_SysAcq(VOS_TRUE);
+
+            CNAS_XSD_SndMsccSysAcqStartInd();
+
+            CNAS_XSD_SetSystemCampOnFlag(VOS_FALSE);
+
+            /* 发送同步请求，同步avoid系统 */
+            NAS_MEM_SET_S(&astDstChan[0],
+                          sizeof(CNAS_PRL_FREQENCY_CHANNEL_STRU) * CNAS_CAS_1X_MAX_FREQ_NUM,
+                          0x00,
+                          sizeof(CNAS_PRL_FREQENCY_CHANNEL_STRU) * CNAS_CAS_1X_MAX_FREQ_NUM);
+
+            CNAS_XSD_GetNextAvoidSysAcqList_SysAcq(&usDstChanNum, &astDstChan[0]);
+
+            CNAS_XSD_ContinueSyncScanList_SysAcq(usDstChanNum, &astDstChan[0]);
+
+            return VOS_TRUE;
+        }
+
+        /* 将层二运行结果通知层一，层一收到此消息后进行层一状态的迁移 */
+        CNAS_XSD_SndSysAcqRslt(CNAS_XSD_SYSTEM_ACQUIRED_RESULT_NO_FREQ, CNAS_XSD_SYS_ACQ_SCENE_SWITCH_ON,VOS_FALSE, CNAS_XSD_GetOocTotalTimerExpiredFlg_SysAcq());
+
+        /* 退出层二状态机 */
+        CNAS_XSD_QuitFsmSysAcq_SysAcq();
+
+        return VOS_TRUE;
+    }
+
+    /* 在状态机上下文中初始化available list */
+
+    usCurScanListIndex = CNAS_XSD_GetCurChannelScanIndex();
+
+    usDstChanNum       = 0;
+
+    /* 获取下组可以扫描的频点列表 */
+    CNAS_XSD_GetNextScanChanList_SysAcq(usCurScanListIndex, &usDstChanNum, astDstChan, pstScanList);
+
+    /* 给CAS发送ID_CNAS_CAS_1X_SYSTEM_SYNC_REQ */
+    CNAS_XSD_SndCasSysSyncReq(usDstChanNum, astDstChan);
+
+    /* 给MSCC发送ID_XSD_MSCC_SYSTEM_ACQUIRE_START_IND */
+    CNAS_XSD_SndMsccSysAcqStartInd();
+
+    /* 清空CCB中存储的1X系统信息 */
+    CNAS_CCB_Init1xSysInfo();
+
+    if (CNAS_CCB_VERSION_SRLTE == CNAS_CCB_IsVersionSrlte())
+    {
+        /* SRLTE模式下，1x搜网不申请资源，起保护定时器 */
+        if (CNAS_TIMER_STATUS_RUNNING == CNAS_GetSpecifiedTimerStatus(UEPS_PID_XSD, TI_CNAS_XSD_SYS_ACQ_NO_RF_PROTECT_TIMER, 0))
+        {
+            CNAS_XSD_StopTimer(TI_CNAS_XSD_SYS_ACQ_NO_RF_PROTECT_TIMER);
+        }
+        CNAS_XSD_StartTimer(TI_CNAS_XSD_SYS_ACQ_NO_RF_PROTECT_TIMER, CNAS_XSD_GetSysAcqNoRfProtectTimerLen());
+    }
+
+    ulWaitCasSyncCnfTimerLen = CNAS_XSD_GetWaitCasSystemSyncCnfTimerLen(usDstChanNum);
+
+    /* 迁移到 CNAS_XSD_SYS_ACQ_STA_WAIT_CAS_SYNC_CNF状态, 并启动保护定时器TI_CNAS_XSD_WAIT_CAS_SYSTEM_SYNC_CNF */
+    CNAS_XSD_SetCurrFsmState(CNAS_XSD_SYS_ACQ_STA_WAIT_CAS_SYNC_CNF);
+
+    CNAS_XSD_StartTimer(TI_CNAS_XSD_WAIT_CAS_SYSTEM_SYNC_CNF, ulWaitCasSyncCnfTimerLen);
+
+    CNAS_XSD_SetSystemCampOnFlag(VOS_FALSE);
+    return VOS_TRUE;
+}
+
+
+VOS_UINT32 CNAS_XSD_RcvXsdSysAcqReq_SysAcq_Init(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    CNAS_XSD_XSD_SYSTEM_ACQUIRED_REQ_STRU                  *pstIntSysAcqReq         = VOS_NULL_PTR;
+    CNAS_XSD_SCAN_CHANNEL_LIST_STRU                        *pstScanList             = VOS_NULL_PTR;
+    CNAS_PRL_FREQENCY_CHANNEL_STRU                          astDstChan[CNAS_CAS_1X_MAX_FREQ_NUM];
+    VOS_UINT16                                              usCurScanListIndex;
+    VOS_UINT16                                              usDstChanNum;
+    VOS_UINT32                                              ulWaitCasSyncCnfTimerLen;
+
+    usDstChanNum = 0;
+    NAS_MEM_SET_S(&astDstChan[0],
+                  sizeof(CNAS_PRL_FREQENCY_CHANNEL_STRU) * CNAS_CAS_1X_MAX_FREQ_NUM,
+                  0x00,
+                  sizeof(CNAS_PRL_FREQENCY_CHANNEL_STRU) * CNAS_CAS_1X_MAX_FREQ_NUM);
+#if (FEATURE_PTM == FEATURE_ON)
+    CNAS_XSD_RecordChr1xOosSrchInfo();
+#endif
+
+    /* 保存入口消息 */
+    CNAS_XSD_SaveCurEntryMsg(ulEventType, pstMsg);
+
+    pstIntSysAcqReq   = (CNAS_XSD_XSD_SYSTEM_ACQUIRED_REQ_STRU *)pstMsg;
+    pstScanList       = CNAS_XSD_GetScanChanListAddr();
+
+    CNAS_XSD_BuildScanChanList(pstIntSysAcqReq->enSysAcqScene, (VOS_UINT16)(pstIntSysAcqReq->ulFreqNum), &pstIntSysAcqReq->astFreq[0], pstScanList);
+
+    /* 构造的scan list为空 */
+    if (0 == pstScanList->usTotalNum)
+    {
+        /* 清空CCB中存储的1X系统信息 */
+        CNAS_CCB_Init1xSysInfo();
+
+        if (VOS_TRUE == CNAS_XSD_IsAcquireAvoidSysNeeded(pstIntSysAcqReq->enSysAcqScene))
+        {
+            CNAS_XSD_SetAvoidSysAcqListFlg_SysAcq(VOS_TRUE);
+
+            CNAS_XSD_SndMsccSysAcqStartInd();
+
+            CNAS_XSD_SetSystemCampOnFlag(VOS_FALSE);
+
+            /* 发送同步请求，同步avoid系统 */
+            NAS_MEM_SET_S(&astDstChan[0],
+                          sizeof(CNAS_PRL_FREQENCY_CHANNEL_STRU) * CNAS_CAS_1X_MAX_FREQ_NUM,
+                          0x00,
+                          sizeof(CNAS_PRL_FREQENCY_CHANNEL_STRU) * CNAS_CAS_1X_MAX_FREQ_NUM);
+
+            CNAS_XSD_GetNextAvoidSysAcqList_SysAcq(&usDstChanNum, &astDstChan[0]);
+
+            CNAS_XSD_ContinueSyncScanList_SysAcq(usDstChanNum, &astDstChan[0]);
+
+            return VOS_TRUE;
+        }
+
+        /* 将层二运行结果通知层一，层一收到此消息后进行层一状态的迁移 */
+        CNAS_XSD_SndSysAcqRslt(CNAS_XSD_SYSTEM_ACQUIRED_RESULT_NO_FREQ, pstIntSysAcqReq->enSysAcqScene,CNAS_XSD_IsImmediateSysAcq_SysAcq(), CNAS_XSD_GetOocTotalTimerExpiredFlg_SysAcq());
+
+        /* 退出层二状态机 */
+        CNAS_XSD_QuitFsmSysAcq_SysAcq();
+
+        return VOS_TRUE;
+    }
+
+    /* 在状态机上下文中初始化available list */
+
+    usCurScanListIndex = CNAS_XSD_GetCurChannelScanIndex();
+    usDstChanNum       = 0;
+
+    /* 获取下组可以扫描的频点列表 */
+    CNAS_XSD_GetNextScanChanList_SysAcq(usCurScanListIndex, &usDstChanNum, astDstChan, pstScanList);
+
+
+    if (0 == usDstChanNum)
+    {
+        /* 清空CCB中存储的1X系统信息 */
+        CNAS_CCB_Init1xSysInfo();
+
+        if (VOS_TRUE == CNAS_XSD_IsAcquireAvoidSysNeeded(pstIntSysAcqReq->enSysAcqScene))
+        {
+            CNAS_XSD_SetAvoidSysAcqListFlg_SysAcq(VOS_TRUE);
+
+            CNAS_XSD_SndMsccSysAcqStartInd();
+
+            CNAS_XSD_SetSystemCampOnFlag(VOS_FALSE);
+
+            /* 发送同步请求，同步avoid系统 */
+            NAS_MEM_SET_S(&astDstChan[0],
+                          sizeof(CNAS_PRL_FREQENCY_CHANNEL_STRU) * CNAS_CAS_1X_MAX_FREQ_NUM,
+                          0x00,
+                          sizeof(CNAS_PRL_FREQENCY_CHANNEL_STRU) * CNAS_CAS_1X_MAX_FREQ_NUM);
+
+            CNAS_XSD_GetNextAvoidSysAcqList_SysAcq(&usDstChanNum, &astDstChan[0]);
+
+            CNAS_XSD_ContinueSyncScanList_SysAcq(usDstChanNum, &astDstChan[0]);
+
+            return VOS_TRUE;
+        }
+
+        /* If Scan list is empty, quit the FSM with Fail Result */
+        CNAS_XSD_SndSysAcqRslt(CNAS_XSD_SYSTEM_ACQUIRED_RESULT_NO_FREQ, pstIntSysAcqReq->enSysAcqScene,CNAS_XSD_IsImmediateSysAcq_SysAcq(), CNAS_XSD_GetOocTotalTimerExpiredFlg_SysAcq());
+
+        CNAS_XSD_QuitFsmSysAcq_SysAcq();
+        return VOS_TRUE;
+    }
+
+    /* 给CAS发送ID_CNAS_CAS_1X_SYSTEM_SYNC_REQ */
+    CNAS_XSD_SndCasSysSyncReq(usDstChanNum, astDstChan);
+
+    /* 给MSCC发送ID_XSD_MSCC_SYSTEM_ACQUIRE_START_IND */
+    CNAS_XSD_SndMsccSysAcqStartInd();
+
+    /* 清空CCB中存储的1X系统信息 */
+    CNAS_CCB_Init1xSysInfo();
+
+    if (CNAS_CCB_VERSION_SRLTE == CNAS_CCB_IsVersionSrlte())
+    {
+        /* SRLTE模式下，1x搜网不申请资源，起保护定时器 */
+        if (CNAS_TIMER_STATUS_RUNNING == CNAS_GetSpecifiedTimerStatus(UEPS_PID_XSD, TI_CNAS_XSD_SYS_ACQ_NO_RF_PROTECT_TIMER, 0))
+        {
+            CNAS_XSD_StopTimer(TI_CNAS_XSD_SYS_ACQ_NO_RF_PROTECT_TIMER);
+        }
+        CNAS_XSD_StartTimer(TI_CNAS_XSD_SYS_ACQ_NO_RF_PROTECT_TIMER, CNAS_XSD_GetSysAcqNoRfProtectTimerLen());
+    }
+
+    CNAS_NORMAL_LOG1(UEPS_PID_XSD, "CNAS_XSD_RcvXsdSysAcqReq_SysAcq_Init: Curr Version Type is", CNAS_CCB_IsVersionSrlte());
+
+    ulWaitCasSyncCnfTimerLen = CNAS_XSD_GetWaitCasSystemSyncCnfTimerLen(usDstChanNum);
+
+    /* 迁移到 CNAS_XSD_SYS_ACQ_STA_WAIT_CAS_SYNC_CNF状态, 并启动保护定时器TI_CNAS_XSD_WAIT_CAS_SYSTEM_SYNC_CNF */
+    CNAS_XSD_SetCurrFsmState(CNAS_XSD_SYS_ACQ_STA_WAIT_CAS_SYNC_CNF);
+
+    CNAS_XSD_StartTimer(TI_CNAS_XSD_WAIT_CAS_SYSTEM_SYNC_CNF, ulWaitCasSyncCnfTimerLen);
+
+    CNAS_XSD_SetSystemCampOnFlag(VOS_FALSE);
+    return VOS_TRUE;
+}
+
+
+
+
+VOS_UINT32 CNAS_XSD_RcvCasSysSyncCnf_SysAcq_WaitCasSysSyncCnf(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    CAS_CNAS_1X_SYSTEM_SYNC_CNF_STRU   *pstSyncCnf = VOS_NULL_PTR;
+
+    pstSyncCnf = (CAS_CNAS_1X_SYSTEM_SYNC_CNF_STRU *)pstMsg;
+
+    /* 停止保护定时器 */
+    CNAS_XSD_StopTimer(TI_CNAS_XSD_WAIT_CAS_SYSTEM_SYNC_CNF);
+
+
+
+    /* 处理同步确认结果 */
+    switch (pstSyncCnf->enSyncRslt)
+    {
+        case CNAS_CAS_1X_RSLT_FAILURE:
+        default:
+            CNAS_XSD_ProcCasSyncCnfFail_SysAcq(pstSyncCnf);
+            break;
+
+        case CNAS_CAS_1X_RSLT_SUCCESS:
+            CNAS_XSD_ProcCasSyncCnfSucc_SysAcq(pstSyncCnf);
+            break;
+
+        case CNAS_CAS_1X_RSLT_NO_RF:
+            CNAS_XSD_ProcCasSyncCnfNoRf_SysAcq(pstSyncCnf);
+
+            break;
+    }
+
+    return VOS_TRUE;
+}
+
+
+VOS_UINT32 CNAS_XSD_RcvTiWaitCasSysSyncCnfExpired_SysAcq_WaitCasSysSyncCnf(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    CNAS_WARNING_LOG(UEPS_PID_XSD, "CNAS_XSD_RcvTiWaitCasSysSyncCnfExpired_SysAcq_WaitCasSysSyncCnf: timer out");
+
+    /* 给CAS发送ID_CNAS_CAS_1X_STOP_SYSTEM_SYNC_REQ消息停止同步 */
+    CNAS_XSD_SndCasStopSysSyncReq();
+
+    /* 迁移到 CNAS_XSD_SYS_ACQ_STA_WAIT_CAS_STOP_SYNC_CNF状态, 并启动保护定时器TI_CNAS_XSD_WAIT_CAS_STOP_SYSTEM_SYNC_CNF */
+    CNAS_XSD_SetCurrFsmState(CNAS_XSD_SYS_ACQ_STA_WAIT_CAS_STOP_SYNC_CNF);
+    CNAS_XSD_StartTimer(TI_CNAS_XSD_WAIT_CAS_STOP_SYSTEM_SYNC_CNF, TI_CNAS_XSD_WAIT_CAS_STOP_SYSTEM_SYNC_CNF_LEN);
+
+    return VOS_TRUE;
+}
+
+
+VOS_UINT32 CNAS_XSD_RcvMsccPowerOffReq_SysAcq_WaitCasSysSyncCnf(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    /* 清空缓存 */
+    CNAS_XSD_InitCacheMsgQueue(CNAS_XSD_INIT_CTX_POWEROFF, &(CNAS_XSD_GetXsdCtxAddr()->stCacheMsgQueue));
+
+    /* 缓存关机请求 */
+    CNAS_XSD_SaveCacheMsg(ulEventType, pstMsg);
+
+    CNAS_XSD_StartTimer(TI_CNAS_XSD_POWEROFF_CAMP_ON_PROTECT_TIMER, TI_CNAS_XSD_POWEROFF_CAMP_ON_PROTECT_TIMER_LEN);
+
+    return VOS_TRUE;
+}
+
+
+
+VOS_UINT32 CNAS_XSD_RcvTiPowerOffCampOnProtectTimerExpired_SysAcq_WaitCasSysSyncCnf(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    CNAS_XSD_StopTimer(TI_CNAS_XSD_WAIT_CAS_SYSTEM_SYNC_CNF);
+
+    /* 设置状态机打断标记 */
+    CNAS_XSD_SetAbortFlg_SysAcq(VOS_TRUE);
+
+    CNAS_XSD_SetSystemAcquiredAbortedCause(NAS_ERR_LOG_1X_SEARCH_RSLT_ABORTED_BY_POWER_OFF);
+
+    /* 给CAS发送ID_CNAS_CAS_1X_STOP_SYSTEM_SYNC_REQ消息停止同步 */
+    CNAS_XSD_SndCasStopSysSyncReq();
+
+    /* 迁移到 CNAS_XSD_SYS_ACQ_STA_WAIT_CAS_STOP_SYNC_CNF状态, 并启动保护定时器TI_CNAS_XSD_WAIT_CAS_STOP_SYSTEM_SYNC_CNF */
+    CNAS_XSD_SetCurrFsmState(CNAS_XSD_SYS_ACQ_STA_WAIT_CAS_STOP_SYNC_CNF);
+    CNAS_XSD_StartTimer(TI_CNAS_XSD_WAIT_CAS_STOP_SYSTEM_SYNC_CNF, TI_CNAS_XSD_WAIT_CAS_STOP_SYSTEM_SYNC_CNF_LEN);
+
+    return VOS_TRUE;
+}
+
+
+
+VOS_UINT32 CNAS_XSD_RcvTiAvailableTimerExpired_SysAcq_WaitCasSysSyncCnf(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    CNAS_XSD_SetOocWaitSearchFlag(VOS_TRUE);
+
+    return VOS_TRUE;
+}
+
+
+
+VOS_UINT32 CNAS_XSD_RcvTiOosSysAcqCurPhaseTotalTimerExpired_SysAcq_WaitCasSysSyncCnf(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    /* 设置超时标记 */
+    CNAS_XSD_SetOocTotalTimerExpiredFlg_SysAcq(VOS_TRUE);
+
+    return VOS_TRUE;
+}
+
+
+
+
+VOS_UINT32 CNAS_XSD_RcvMsccPowerSaveReq_SysAcq_WaitCasSysSyncCnf(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    /* 清除低优先级打断和之前打断的缓存消息 */
+    if (VOS_TRUE == CNAS_XSD_ClearCacheMsgByMsgName(UEPS_PID_MSCC, ID_MSCC_XSD_SRV_ACQ_REQ))
+    {
+        CNAS_XSD_SndMsccSrvAcqCnf(NAS_MSCC_PIF_SRV_ACQ_RESULT_FAIL);
+
+        CNAS_XSD_SetSrvAcqFlg(VOS_FALSE);
+    }
+
+    /* 清空缓存 */
+    CNAS_XSD_InitCacheMsgQueue(CNAS_XSD_INIT_CTX_POWEROFF, &(CNAS_XSD_GetXsdCtxAddr()->stCacheMsgQueue));
+
+    /* Stop Sync Cnf protect timer */
+    CNAS_XSD_StopTimer(TI_CNAS_XSD_WAIT_CAS_SYSTEM_SYNC_CNF);
+
+    /* Save the Power Save Request in cache */
+    CNAS_XSD_SaveCacheMsg(ulEventType, pstMsg);
+
+    CNAS_XSD_SetSystemAcquiredAbortedCause(NAS_ERR_LOG_1X_SEARCH_RSLT_ABORTED_BY_POWER_SAVE);
+
+    /* Set Abort flag to true */
+    CNAS_XSD_SetAbortFlg_SysAcq(VOS_TRUE);
+
+    /* Send Stop Sync Req to CAS */
+    CNAS_XSD_SndCasStopSysSyncReq();
+
+    /* Set next State to Wait CAS Stop Sync Cnf and start the protect timer */
+    CNAS_XSD_SetCurrFsmState(CNAS_XSD_SYS_ACQ_STA_WAIT_CAS_STOP_SYNC_CNF);
+    CNAS_XSD_StartTimer(TI_CNAS_XSD_WAIT_CAS_STOP_SYSTEM_SYNC_CNF, TI_CNAS_XSD_WAIT_CAS_STOP_SYSTEM_SYNC_CNF_LEN);
+
+    return VOS_TRUE;
+}
+
+
+VOS_UINT32 CNAS_XSD_RcvCasOhmInd_SysAcq_WaitCasOhmInd(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    CNAS_PRL_1X_SYSTEM_STRU             stCurSysInfo;
+    VOS_UINT32                          ulIsNegSys;
+    CAS_CNAS_1X_OHM_IND_STRU           *pstOhmInd = VOS_NULL_PTR;
+
+    pstOhmInd = (CAS_CNAS_1X_OHM_IND_STRU *)pstMsg;
+
+    /* Stop the Timer */
+    CNAS_XSD_StopTimer(TI_CNAS_XSD_WAIT_CAS_OHM_IND);
+
+    stCurSysInfo.stFreq.enBandClass = pstOhmInd->usBandClass;
+    stCurSysInfo.stFreq.usChannel   = pstOhmInd->usFreq;
+    stCurSysInfo.usSid              = pstOhmInd->usSid;
+    stCurSysInfo.usNid              = pstOhmInd->usNid;
+
+    /* 如果不是available系统，刷新overheader上报的频点信息 */
+    if (VOS_FALSE == CNAS_XSD_GetAvailSysAcqListFlg_SysAcq())
+    {
+        /* 更新overheader上报的频点到CCB中 */
+        CNAS_CCB_SetCdmaOhmFreq(&(stCurSysInfo.stFreq));
+    }
+
+    ulIsNegSys = CNAS_XSD_IsCurSysNotSuitableSys(&stCurSysInfo,
+                                                 pstOhmInd->enServiceInfoIncl,
+                                                 pstOhmInd->stServiceInfo.usMcc);
+
+    if (VOS_TRUE == ulIsNegSys)
+    {
+        CNAS_WARNING_LOG(UEPS_PID_XSD, "CNAS_XSD_RcvCasOhmInd_SysAcq_WaitCasOhmInd: The CAS Ind System is Neg!");
+    }
+
+    CNAS_XSD_ProcCasOhmInd(pstOhmInd, ulIsNegSys);
+
+    if(VOS_TRUE == CNAS_XSD_GetAbortFlg_SysAcq())
+    {
+        CNAS_XSD_SndSysAcqRslt(CNAS_XSD_SYSTEM_ACQUIRED_RESULT_ABORTED,
+                               CNAS_XSD_GetCurSysAcqScene_SysAcq(),
+                               CNAS_XSD_IsImmediateSysAcq_SysAcq(),
+                               CNAS_XSD_GetOocTotalTimerExpiredFlg_SysAcq());
+    }
+    else
+    {
+        /* 将层二运行结果通知层一，层一收到此消息后进行层一状态的迁移 */
+        CNAS_XSD_SndSysAcqRslt(CNAS_XSD_SYSTEM_ACQUIRED_RESULT_SUCCESS, CNAS_XSD_GetCurSysAcqScene_SysAcq(), VOS_FALSE, CNAS_XSD_GetOocTotalTimerExpiredFlg_SysAcq());
+    }
+
+    OM_DelDrxTimerWakeSrc(CNAS_CCB_GetCdmaModeModemId(), VOS_RATMODE_1X);
+
+    CNAS_XSD_LogDrxTimerStatus(VOS_FALSE);
+
+    /* 退出层二状态机 */
+    CNAS_XSD_QuitFsmSysAcq_SysAcq();
+
+    return VOS_TRUE;
+}
+
+
+VOS_UINT32 CNAS_XSD_RcvCasSysDeterminInd_SysAcq_WaitCasOhmInd
+(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    CAS_CNAS_1X_SYSTEM_DETERMIN_IND_STRU                   *pstSysDeterminInd = VOS_NULL_PTR;
+    CNAS_PRL_FREQENCY_CHANNEL_STRU                         *pstFreq           = VOS_NULL_PTR;
+
+    pstSysDeterminInd = (CAS_CNAS_1X_SYSTEM_DETERMIN_IND_STRU *)pstMsg;
+
+    /* 有打断标记需要退出 */
+    if (VOS_TRUE == CNAS_XSD_GetAbortFlg_SysAcq())
+    {
+        /* 停止保护定时器 */
+        CNAS_XSD_StopTimer(TI_CNAS_XSD_WAIT_CAS_OHM_IND);
+
+        CNAS_XSD_PerformAbortProcedure_SysAcq();
+
+        return VOS_TRUE;
+    }
+
+    if (VOS_TRUE == CNAS_XSD_GetNdssIndFlag())
+    {
+        CNAS_XSD_SetNdssIndFlag(VOS_FALSE);
+
+        CNAS_XSD_SndXccNdssResultInd(XSD_XCC_NDSS_RESULT_FAILURE);
+    }
+
+    /* 获取上次同步成功的频点 */
+    pstFreq = CNAS_XSD_GetLastSyncedFreq();
+
+    /***********************************************************************************************
+     * 1. 刷新scan list中上次同步成功的频点为搜索不存在
+     **********************************************************************************************/
+    CNAS_XSD_UpdateChanStatusUponRcvCasDeterminInd_SysAcq(pstFreq);
+
+
+
+    /***********************************************************************************************
+     * 2. GEO系统记录搜索列表存在时，刷新GEO系统记录搜索列表中的频点为搜索不存在
+     **********************************************************************************************/
+    if (VOS_NULL_PTR != CNAS_XSD_GetGeoSysRecSrchListAddr_SysAcq()->pstAcqSysInfo)
+    {
+        CNAS_XSD_UpdateGeoSysRecordStatusUponReceivedDeterminInd(pstFreq);
+    }
+
+    switch (pstSysDeterminInd->enSdReason)
+    {
+        case CAS_CNAS_1X_SD_SYS_LOST_IND:
+        case CAS_CNAS_1X_SD_NEW_SYSTEM_IND:
+        case CAS_CNAS_1X_SD_ABNORMAL_IND:
+        case CAS_CNAS_1X_SD_LOCK_IND:
+        case CAS_CNAS_1X_SD_UNLOCK_IND:
+        case CAS_CNAS_1X_SD_RESCAN_IND:
+        case CAS_CNAS_1X_SD_ACQUISITION_FAIL:
+            CNAS_XSD_StopTimer(TI_CNAS_XSD_WAIT_CAS_OHM_IND);
+
+            CNAS_XSD_SetRedirectionFlag(VOS_FALSE);
+
+            CNAS_XSD_ContinueSysSync_SysAcq();
+            break;
+
+        case CAS_CNAS_1X_SD_PROTO_MISMATCH_IND:
+            CNAS_XSD_StopTimer(TI_CNAS_XSD_WAIT_CAS_OHM_IND);
+
+            CNAS_XSD_ProcCasSystemDetermineIndWithProtoMisReason_SysAcq(ulEventType, pstMsg);
+            break;
+
+        /* 结果为NO RF的搜网失败的处理 */
+        case CAS_CNAS_1X_SD_NO_RF:
+            CNAS_XSD_StopTimer(TI_CNAS_XSD_WAIT_CAS_OHM_IND);
+
+            CNAS_XSD_SetRedirectionFlag(VOS_FALSE);
+
+            /* 将层二运行结果通知层一，层一收到此消息后进行层一状态的迁移 */
+            CNAS_XSD_SndSysAcqRslt(CNAS_XSD_SYSTEM_ACQUIRED_RESULT_FAILURE, CNAS_XSD_SYS_ACQ_SCENE_NO_RF, VOS_FALSE, CNAS_XSD_GetOocTotalTimerExpiredFlg_SysAcq());
+
+            /* 退出层二状态机 */
+            CNAS_XSD_QuitFsmSysAcq_SysAcq();
+            break;
+
+        default:
+
+            /* other reasons we think cas will continue send overhead message to us,so we still
+               stay on the current state. */
+            CNAS_WARNING_LOG(UEPS_PID_XSD, "CNAS_XSD_RcvCasSysDeterminInd_SysAcq_WaitCasOhmInd: unknown reason");
+            break;
+    }
+
+
+    return VOS_TRUE;
+}
+
+
+VOS_UINT32 CNAS_XSD_RcvTiWaitCasOhmIndExpired_SysAcq_WaitCasOhmInd(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    CNAS_WARNING_LOG(UEPS_PID_XSD, "CNAS_XSD_RcvTiWaitCasOhmIndExpired_SysAcq_WaitCasOhmInd: timer out");
+
+    /* 不刷新SCAN LIST频点状态 */
+
+    /* 有打断标记需要退出 */
+    if (VOS_TRUE == CNAS_XSD_GetAbortFlg_SysAcq())
+    {
+        CNAS_XSD_PerformAbortProcedure_SysAcq();
+
+        return VOS_TRUE;
+    }
+
+    CNAS_XSD_ContinueSysSync_SysAcq();
+
+    return VOS_TRUE;
+}
+
+
+
+VOS_UINT32 CNAS_XSD_RcvMsccPowerOffReq_SysAcq_WaitCasOhmInd(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    CNAS_PRL_1X_SYSTEM_ID_STRU         *pstLastSyncedSys       = VOS_NULL_PTR;
+    CNAS_PRL_1X_SYSTEM_STRU             st1xSysInfo;
+
+    NAS_MEM_SET_S(&st1xSysInfo, sizeof(st1xSysInfo), 0x00, sizeof(CNAS_PRL_1X_SYSTEM_STRU));
+    pstLastSyncedSys                    = CNAS_XSD_GetLastSyncedSys();
+
+    st1xSysInfo.usSid                   = pstLastSyncedSys->usSid;
+    st1xSysInfo.usNid                   = pstLastSyncedSys->usNid;
+    st1xSysInfo.stFreq                  = CNAS_XSD_GetHistorySyncedSysFreqList()->astFreq[0];
+
+    /* 清空缓存 */
+    CNAS_XSD_InitCacheMsgQueue(CNAS_XSD_INIT_CTX_POWEROFF, &(CNAS_XSD_GetXsdCtxAddr()->stCacheMsgQueue));
+
+    /* 缓存关机请求 */
+    CNAS_XSD_SaveCacheMsg(ulEventType, pstMsg);
+
+    /* 若当前系统无效,立即打断 */
+    if (VOS_TRUE == CNAS_XSD_IsCurSysNotSuitableSys(&st1xSysInfo, VOS_FALSE, 0))
+    {
+        CNAS_XSD_StopTimer(TI_CNAS_XSD_WAIT_CAS_OHM_IND);
+
+        CNAS_XSD_SndSysAcqRslt(CNAS_XSD_SYSTEM_ACQUIRED_RESULT_ABORTED,
+                               CNAS_XSD_GetCurSysAcqScene_SysAcq(),
+                               CNAS_XSD_IsImmediateSysAcq_SysAcq(),
+                               CNAS_XSD_GetOocTotalTimerExpiredFlg_SysAcq());
+
+        /* 退出层二状态机 */
+        CNAS_XSD_QuitFsmSysAcq_SysAcq();
+
+        return VOS_TRUE;
+    }
+
+    CNAS_XSD_StartTimer(TI_CNAS_XSD_POWEROFF_CAMP_ON_PROTECT_TIMER, TI_CNAS_XSD_POWEROFF_CAMP_ON_PROTECT_TIMER_LEN);
+
+    return VOS_TRUE;
+}
+
+
+
+VOS_UINT32 CNAS_XSD_RcvTiPowerOffCampOnProtectTimerExpired_SysAcq_WaitCasOhmInd(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    CNAS_XSD_SetSystemAcquiredAbortedCause(NAS_ERR_LOG_1X_SEARCH_RSLT_ABORTED_BY_POWER_OFF);
+
+    /* 设置状态机打断标记 */
+    CNAS_XSD_SetAbortFlg_SysAcq(VOS_TRUE);
+
+    CNAS_XSD_StopTimer(TI_CNAS_XSD_WAIT_CAS_OHM_IND);
+
+    CNAS_XSD_PerformAbortProcedure_SysAcq();
+
+    return VOS_TRUE;
+}
+
+
+VOS_UINT32 CNAS_XSD_RcvTiOosSysAcqCurPhaseTotalTimerExpired_SysAcq_WaitCasOhmInd(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    /* 设置超时标记 */
+    CNAS_XSD_SetOocTotalTimerExpiredFlg_SysAcq(VOS_TRUE);
+
+    return VOS_TRUE;
+}
+
+
+VOS_UINT32 CNAS_XSD_RcvTiOosSysAcqCurPhaseTotalTimerExpired_SysAcq_WaitCasStopSysSyncCnf(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    /* 设置超时标记 */
+    CNAS_XSD_SetOocTotalTimerExpiredFlg_SysAcq(VOS_TRUE);
+
+    return VOS_TRUE;
+}
+
+
+
+
+
+VOS_UINT32 CNAS_XSD_RcvTiAvailableTimerExpired_SysAcq_WaitCasOhmInd(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    CNAS_XSD_SetOocWaitSearchFlag(VOS_TRUE);
+
+    return VOS_TRUE;
+}
+
+
+
+VOS_UINT32 CNAS_XSD_RcvMsccPowerSaveReq_SysAcq_WaitCasOhmInd(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    CNAS_PRL_1X_SYSTEM_ID_STRU         *pstLastSyncedSys       = VOS_NULL_PTR;
+    CNAS_PRL_1X_SYSTEM_STRU             st1xSysInfo;
+
+    NAS_MEM_SET_S(&st1xSysInfo, sizeof(st1xSysInfo), 0x00, sizeof(CNAS_PRL_1X_SYSTEM_STRU));
+    pstLastSyncedSys                    = CNAS_XSD_GetLastSyncedSys();
+
+    /* 清除低优先级打断和之前打断的缓存消息 */
+    if (VOS_TRUE == CNAS_XSD_ClearCacheMsgByMsgName(UEPS_PID_MSCC, ID_MSCC_XSD_SRV_ACQ_REQ))
+    {
+        CNAS_XSD_SndMsccSrvAcqCnf(NAS_MSCC_PIF_SRV_ACQ_RESULT_FAIL);
+
+        CNAS_XSD_SetSrvAcqFlg(VOS_FALSE);
+    }
+
+    /* 清空缓存 */
+    CNAS_XSD_InitCacheMsgQueue(CNAS_XSD_INIT_CTX_POWEROFF, &(CNAS_XSD_GetXsdCtxAddr()->stCacheMsgQueue));
+
+    st1xSysInfo.usSid                   = pstLastSyncedSys->usSid;
+    st1xSysInfo.usNid                   = pstLastSyncedSys->usNid;
+    st1xSysInfo.stFreq                  = CNAS_XSD_GetHistorySyncedSysFreqList()->astFreq[0];
+
+    /* 紧急呼流程中，打断处理 */
+    /* 缓存业务触发搜网请求 */
+    CNAS_XSD_SaveCacheMsg(ulEventType, pstMsg);
+
+    CNAS_XSD_SetSystemAcquiredAbortedCause(NAS_ERR_LOG_1X_SEARCH_RSLT_ABORTED_BY_POWER_SAVE);
+
+    /* 若当前系统有效，延迟打断 */
+    if (VOS_TRUE != CNAS_XSD_IsCurSysNotSuitableSys(&st1xSysInfo, VOS_FALSE, 0))
+    {
+        /* 设置状态机打断标记 */
+        CNAS_XSD_SetAbortFlg_SysAcq(VOS_TRUE);
+
+        CNAS_XSD_StartTimer(TI_CNAS_XSD_POWEROFF_CAMP_ON_PROTECT_TIMER, TI_CNAS_XSD_POWEROFF_CAMP_ON_PROTECT_TIMER_LEN);
+
+        return VOS_TRUE;
+    }
+
+    CNAS_XSD_StopTimer(TI_CNAS_XSD_WAIT_CAS_OHM_IND);
+
+    CNAS_XSD_SndSysAcqRslt(CNAS_XSD_SYSTEM_ACQUIRED_RESULT_ABORTED,
+                           CNAS_XSD_GetCurSysAcqScene_SysAcq(),
+                           CNAS_XSD_IsImmediateSysAcq_SysAcq(),
+                           CNAS_XSD_GetOocTotalTimerExpiredFlg_SysAcq());
+
+    /* 退出层二状态机 */
+    CNAS_XSD_QuitFsmSysAcq_SysAcq();
+
+    return VOS_TRUE;
+}
+
+
+
+VOS_UINT32 CNAS_XSD_RcvCasStopSysSyncCnf_SysAcq_WaitCasStopSysSyncCnf(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+
+    /* 停止保护定时器 */
+    CNAS_XSD_StopTimer(TI_CNAS_XSD_WAIT_CAS_STOP_SYSTEM_SYNC_CNF);
+
+    /***********************************************************************************************
+     * 1. 处理打断流程
+     **********************************************************************************************/
+    if (VOS_TRUE == CNAS_XSD_GetAbortFlg_SysAcq())
+    {
+        CNAS_XSD_PerformAbortProcedure_SysAcq();
+
+        return VOS_TRUE;
+    }
+
+    /***********************************************************************************************
+     * 2. 继续进行同步
+     **********************************************************************************************/
+    CNAS_XSD_ContinueSysSync_SysAcq();
+
+    return VOS_TRUE;
+}
+
+
+VOS_UINT32 CNAS_XSD_RcvTiWaitCasStopSysSyncCnfExpired_SysAcq_WaitCasStopSysSyncCnf(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    CNAS_WARNING_LOG(UEPS_PID_XSD, "CNAS_XSD_RcvTiWaitCasStopSysSyncCnfExpired_SysAcq_WaitCasStopSysSyncCnf: timer out");
+
+    /***********************************************************************************************
+     * 1. 处理打断流程
+     **********************************************************************************************/
+    if (VOS_TRUE == CNAS_XSD_GetAbortFlg_SysAcq())
+    {
+        CNAS_XSD_PerformAbortProcedure_SysAcq();
+
+        return VOS_TRUE;
+    }
+
+    /***********************************************************************************************
+     * 2. 继续进行同步
+     **********************************************************************************************/
+    CNAS_XSD_ContinueSysSync_SysAcq();
+
+
+    return VOS_TRUE;
+}
+
+
+VOS_UINT32 CNAS_XSD_RcvMsccPowerOffReq_SysAcq_WaitCasStopSysSyncCnf(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    /* 清空缓存 */
+    CNAS_XSD_InitCacheMsgQueue(CNAS_XSD_INIT_CTX_POWEROFF, &(CNAS_XSD_GetXsdCtxAddr()->stCacheMsgQueue));
+
+    /* 缓存关机请求 */
+    CNAS_XSD_SaveCacheMsg(ulEventType, pstMsg);
+
+    CNAS_XSD_StartTimer(TI_CNAS_XSD_POWEROFF_CAMP_ON_PROTECT_TIMER, TI_CNAS_XSD_POWEROFF_CAMP_ON_PROTECT_TIMER_LEN);
+
+    return VOS_TRUE;
+}
+
+
+
+VOS_UINT32 CNAS_XSD_RcvTiPowerOffCampOnProtectTimerExpired_SysAcq_WaitCasStopSysSyncCnf(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    CNAS_XSD_SetSystemAcquiredAbortedCause(NAS_ERR_LOG_1X_SEARCH_RSLT_ABORTED_BY_POWER_OFF);
+
+    /* 设置状态机打断标记 */
+    CNAS_XSD_SetAbortFlg_SysAcq(VOS_TRUE);
+
+    return VOS_TRUE;
+}
+
+
+VOS_UINT32 CNAS_XSD_RcvTiAvailableTimerExpired_SysAcq_WaitCasStopSysSyncCnf(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    CNAS_XSD_SetOocWaitSearchFlag(VOS_TRUE);
+
+    return VOS_TRUE;
+}
+
+
+
+VOS_UINT32 CNAS_XSD_RcvMsccPowerSaveReq_SysAcq_WaitCasStopSysSyncCnf(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    /* 清除低优先级打断和之前打断的缓存消息 */
+    if (VOS_TRUE == CNAS_XSD_ClearCacheMsgByMsgName(UEPS_PID_MSCC, ID_MSCC_XSD_SRV_ACQ_REQ))
+    {
+        CNAS_XSD_SndMsccSrvAcqCnf(NAS_MSCC_PIF_SRV_ACQ_RESULT_FAIL);
+
+        CNAS_XSD_SetSrvAcqFlg(VOS_FALSE);
+    }
+
+    /* 清空缓存 */
+    CNAS_XSD_InitCacheMsgQueue(CNAS_XSD_INIT_CTX_POWEROFF, &(CNAS_XSD_GetXsdCtxAddr()->stCacheMsgQueue));
+
+    /* Save the Power Save Request in cache */
+    CNAS_XSD_SaveCacheMsg(ulEventType, pstMsg);
+
+    CNAS_XSD_SetSystemAcquiredAbortedCause(NAS_ERR_LOG_1X_SEARCH_RSLT_ABORTED_BY_POWER_SAVE);
+
+    /* Set Abort flag to true */
+    CNAS_XSD_SetAbortFlg_SysAcq(VOS_TRUE);
+
+    return VOS_TRUE;
+}
+
+
+VOS_VOID CNAS_XSD_PerformBestPreferedSystemSelectionAfterSyncSucc_SysAcq(
+    CAS_CNAS_1X_SYSTEM_SYNC_CNF_STRU   *pstSyncCnf
+)
+{
+    CNAS_XSD_GEO_SYS_RECORD_SRCH_LIST_STRU                 *pstGeoSysRecSrchList = VOS_NULL_PTR;
+
+    /***********************************************************************************************
+     * 1.处理GEO系统记录搜索列表不存在的场景
+     **********************************************************************************************/
+    pstGeoSysRecSrchList = CNAS_XSD_GetGeoSysRecSrchListAddr_SysAcq();
+
+    if (VOS_NULL_PTR == pstGeoSysRecSrchList->pstAcqSysInfo)
+    {
+        /* GEO系统记录搜索列表不存在的处理 */
+        CNAS_XSD_PreformBestPreferedSystemSelectionAndNoGeoSysRecordSearchList_SysAcq(pstSyncCnf);
+
+        return;
+    }
+
+    /***********************************************************************************************
+     * 2.处理GEO系统记录搜索列表存在的场景
+     **********************************************************************************************/
+    CNAS_XSD_PreformBestPreferedSystemSelectionAndGeoSysRecordSearchListExist_SysAcq(pstSyncCnf);
+
+    return;
+}
+
+
+VOS_UINT32 CNAS_XSD_PerformNormalCallRedialSystemSeletion_SysAcq(
+    CNAS_PRL_1X_SYSTEM_STRU            *pstCurSysInfo
+)
+{
+    CNAS_PRL_SYS_PRI_TYPE_ENUM_UINT32                       enSysPref;
+    CNAS_PRL_SYS_ROAMING_IND_ENUM_UINT8                     enRoamingInd;
+    CNAS_PRL_MATCHED_GEO_LIST_INFO_STRU                     stCurSysGeoListInfo;
+    CNAS_PRL_1X_SYSTEM_STRU                                *pstOrigSysInfo = VOS_NULL_PTR;
+    VOS_UINT32                                              ulIsNegSys;
+
+    ulIsNegSys = VOS_FALSE;
+
+    /* reference from chapter 4.7.2 in CDG 143:
+       The MS shall only stay and try to place the call on systems that comply with one
+       of the following criteria:
+
+       1. Systems that are same or more preferred than the original system;
+
+       2. Systems have a home roaming indicator;
+
+       3. The MS is allowed to place the call on a system from a different GEO (i.e., jump a GEO)
+          as long this system meets one of the above criteria.
+
+          Note: The criteria 3 has been included in the aboving criteria 1.
+    */
+
+    pstOrigSysInfo = CNAS_XSD_GetCallOrignalSys();
+
+    /* check if the current system is orignal system */
+    if (VOS_TRUE == CNAS_PRL_Is1xSysMatched(pstOrigSysInfo, pstCurSysInfo))
+    {
+        return VOS_TRUE;
+    }
+
+    /* HOME SID/NID 列表只影响系统的漫游属性，不作为适合驻留的依据 */
+    /* check当前系统是否是home系统，不依赖于PRL */
+
+    /* check if the current system is negative system in PRL system table */
+    ulIsNegSys = CNAS_XSD_IsCurSysNotSuitableSys(pstCurSysInfo, VOS_FALSE, 0);
+
+    if (VOS_TRUE == ulIsNegSys)
+    {
+        return VOS_FALSE;
+    }
+
+    ulIsNegSys = CNAS_XSD_IsCurSysNotSuitableSys(pstOrigSysInfo, VOS_FALSE, 0);
+
+    if (VOS_TRUE == ulIsNegSys)
+    {
+        return VOS_TRUE;
+    }
+
+    NAS_MEM_SET_S(&stCurSysGeoListInfo, sizeof(stCurSysGeoListInfo), 0, sizeof(CNAS_PRL_MATCHED_GEO_LIST_INFO_STRU));
+
+    CNAS_PRL_Get1xSysGeoList(pstCurSysInfo, &stCurSysGeoListInfo);
+
+    /* check if current system is home roaming indicator */
+    if (VOS_TRUE == CNAS_PRL_IsCurrentSystemHomeRoamingIndicator(pstCurSysInfo,
+                                                                 &stCurSysGeoListInfo,
+                                                                 &enRoamingInd))
+    {
+        return VOS_TRUE;
+    }
+
+    /* compare the priority between current system and orignal system */
+    enSysPref = CNAS_PRL_CompareSystemPreference(pstCurSysInfo, pstOrigSysInfo);
+
+    if ((CNAS_PRL_SYS_PRI_HIGH == enSysPref)
+     || (CNAS_PRL_SYS_PRI_SAME == enSysPref))
+    {
+        return VOS_TRUE;
+    }
+
+    return VOS_FALSE;
+}
+
+
+
+VOS_VOID CNAS_XSD_PerformNotLessPrefSystemSelectionAfterSyncSucc_SysAcq(
+    CAS_CNAS_1X_SYSTEM_SYNC_CNF_STRU                       *pstSyncCnf
+)
+{
+    CNAS_PRL_FREQENCY_CHANNEL_STRU                          astDstChan[CNAS_CAS_1X_MAX_FREQ_NUM];
+    CNAS_XSD_SCAN_CHANNEL_LIST_STRU                        *pstScanList = VOS_NULL_PTR;
+    VOS_UINT16                                              usDstChanNum;
+    VOS_UINT16                                              usCurScanListIndex;
+    CNAS_PRL_1X_SYSTEM_STRU                                 stCurSysInfo;
+
+    stCurSysInfo.stFreq.enBandClass = pstSyncCnf->stFreq.usBandClass;
+    stCurSysInfo.stFreq.usChannel   = pstSyncCnf->stFreq.usChannel;
+    stCurSysInfo.usNid              = pstSyncCnf->stSyncedSysId.usNid;
+    stCurSysInfo.usSid              = pstSyncCnf->stSyncedSysId.usSid;
+
+    /* check if orignal system is exist */
+    if (VOS_FALSE == CNAS_XSD_GetCallOrigSysExistFlg())
+    {
+        /* if orignal system is not exist, here use procedure of switch on system selection */
+        CNAS_XSD_PerformBestPreferedSystemSelectionAfterSyncSucc_SysAcq(pstSyncCnf);
+
+        return;
+    }
+
+    /* check the current system is fit to camp on */
+    if (VOS_TRUE == CNAS_XSD_PerformNormalCallRedialSystemSeletion_SysAcq(&stCurSysInfo))
+    {
+        /* notify CAS to camp on the current system */
+        CNAS_XSD_SndCas1xCampSyncedChannelNtf();
+
+        /* transfer to CNAS_XSD_SYS_ACQ_STA_WAIT_CAS_OHM_IND state, start timer */
+        CNAS_XSD_SetCurrFsmState(CNAS_XSD_SYS_ACQ_STA_WAIT_CAS_OHM_IND);
+        CNAS_XSD_StartTimer(TI_CNAS_XSD_WAIT_CAS_OHM_IND, TI_CNAS_XSD_WAIT_CAS_OHM_IND_LEN);
+    }
+    else
+    {
+        /* contine to request CAS synchronize system */
+        usDstChanNum       = 0;
+        usCurScanListIndex = CNAS_XSD_GetCurChannelScanIndex();
+        pstScanList        = CNAS_XSD_GetScanChanListAddr();
+
+        CNAS_XSD_GetNextScanChanList_SysAcq(usCurScanListIndex, &usDstChanNum, astDstChan, pstScanList);
+
+        if (0 == usDstChanNum)
+        {
+            /* No frequencies need to synchronize */
+            CNAS_XSD_ProcScanListSyncComplete_SysAcq();
+        }
+        else
+        {
+            /* contine to synchronize the remained frequencies */
+            CNAS_XSD_ContinueSyncScanList_SysAcq(usDstChanNum, astDstChan);
+        }
+    }
+
+    return;
+}
+
+
+VOS_VOID CNAS_XSD_PerformSystemSelectionAfterSyncSucc_SysAcq(
+    CAS_CNAS_1X_SYSTEM_SYNC_CNF_STRU   *pstSyncCnf
+)
+{
+    CNAS_XSD_SYS_ACQ_SCENE_ENUM_UINT32                      enScanScene;
+    CNAS_XSD_SYSTEM_ACQUIRE_MODE_ENUM_UINT8                 enSysAcqMode;
+    VOS_UINT32                                              ulIsAnyCampOnFreq;
+    CNAS_CCB_CARD_STATUS_ENUM_UINT8                         enCardStatus;
+
+    enScanScene  = CNAS_XSD_GetCurSysAcqScene_SysAcq();
+    enSysAcqMode = CNAS_XSD_GetSysAcqModeOfSpecialAcqScene(enScanScene);
+
+    if (VOS_TRUE == g_CtrlCallRelScanList)
+    {
+        /* 如果是call release场景，且当前同步成功的频点不是任何系统都可驻留的频点，则按Best Prefer场景
+           进行选择:
+           由于目前call release后搜网，scan list构表采用一次构表(见call release场景下的scan list构表),
+           而呼叫在TCH状态下的频点以及MRU0频点上的系统可以直接驻留，而后续频点需要按BEST PREFER选择，因此
+           此处做特殊处理。
+         */
+        ulIsAnyCampOnFreq = CNAS_XSD_IsCallRelAnyCampOnFreq_SysAcq(&(pstSyncCnf->stFreq));
+
+        if ((CNAS_XSD_SYS_ACQ_SCENE_CALL_RELEASED == CNAS_XSD_GetCurSysAcqScene_SysAcq())
+         && (VOS_FALSE                            == ulIsAnyCampOnFreq))
+        {
+            enSysAcqMode = CNAS_XSD_SYSTEM_ACQUIRE_MODE_BEST_PREF;
+        }
+    }
+
+    enCardStatus = CNAS_CCB_GetCsimCardStatus();
+
+    if (CNAS_CCB_CARD_STATUS_ABSENT == enCardStatus)
+    {
+        enSysAcqMode = CNAS_XSD_SYSTEM_ACQUIRE_MODE_ANY;
+    }
+
+    CNAS_MNTN_LogCommonStatusInfo(UEPS_PID_XSD, (VOS_UINT8)enCardStatus);
+
+    switch (enSysAcqMode)
+    {
+        case CNAS_XSD_SYSTEM_ACQUIRE_MODE_NOT_LESS_PREF:
+
+            CNAS_XSD_PerformNotLessPrefSystemSelectionAfterSyncSucc_SysAcq(pstSyncCnf);
+            break;
+
+        case CNAS_XSD_SYSTEM_ACQUIRE_MODE_ALLOWED:
+
+            CNAS_XSD_PerformAllowedSystemSelectionAfterSyncSucc_SysAcq(pstSyncCnf);
+            break;
+
+        case CNAS_XSD_SYSTEM_ACQUIRE_MODE_BEST_PREF:
+
+            CNAS_XSD_PerformBestPreferedSystemSelectionAfterSyncSucc_SysAcq(pstSyncCnf);
+            break;
+
+        case CNAS_XSD_SYSTEM_ACQUIRE_MODE_SPECIFIC:
+
+            CNAS_XSD_PerformSpecificSystemSelectionAfterSyncSucc_SysAcq(pstSyncCnf);
+            break;
+
+        case CNAS_XSD_SYSTEM_ACQUIRE_MODE_ANY:
+
+            CNAS_XSD_PerformAnySystemSelectionAfterSyncSucc_SysAcq(pstSyncCnf);
+            break;
+
+        case CNAS_XSD_SYSTEM_ACQUIRE_MODE_PREFERED:
+
+            CNAS_XSD_PerformPreferedSystemSelectionAfterSyncSucc_SysAcq(pstSyncCnf);
+            break;
+
+        default:
+
+            CNAS_WARNING_LOG(UEPS_PID_XSD, "CNAS_XSD_PerformSystemSelectionAfterSyncSucc_SysAcq: unsupported system acquire mode");
+            break;
+    }
+}
+
+
+
+VOS_VOID CNAS_XSD_ProcCasSyncCnfSucc_SysAcq(
+    CAS_CNAS_1X_SYSTEM_SYNC_CNF_STRU   *pstSyncCnf
+)
+{
+    /***********************************************************************************************
+     * 1. 如果当前RF available为FALSE，通知上层RF available
+     **********************************************************************************************/
+    if (VOS_FALSE == CNAS_CCB_Get1XRfAvailFlg())
+    {
+        /* 上报MSCC NO RF消息 */
+        CNAS_XSD_SndMsccRfAvailInd(VOS_TRUE);
+
+        /* 设置当前RF可用标记为:RF可用 */
+        CNAS_CCB_Set1XRfAvailFlg(VOS_TRUE);
+    }
+
+    /***********************************************************************************************
+     * 2. 非锁频时，允许操作avoid频点
+     **********************************************************************************************/
+    if (VOS_FALSE == CNAS_XSD_GetFreqLockMode())
+    {
+        /* 非Avoid搜网，非锁频模式下才操作Avoid频点 */
+        if (VOS_TRUE != CNAS_XSD_GetAvoidSysAcqListFlg_SysAcq())
+        {
+            /* 处理系统同步确认消息中需要被禁的频点 */
+            CNAS_XSD_ProcFreqAvoidedInCasSyncCnf(pstSyncCnf);
+        }
+    }
+
+    /***********************************************************************************************
+     * 3. 通知上层当前同步的1X系统的SID信息
+     **********************************************************************************************/
+    /* 保存同步成功的系统信息 */
+    CNAS_CCB_Set1xSysInfo(pstSyncCnf->stSyncedSysId.usSid,
+                          pstSyncCnf->stSyncedSysId.usNid,
+                          pstSyncCnf->stFreq.usBandClass,
+                          pstSyncCnf->stFreq.usChannel);
+
+    if (pstSyncCnf->stSyncedSysId.usSid != CNAS_XSD_GetLastSyncedSys()->usSid)
+    {
+        /* 更新上次同步到的系统 */
+        CNAS_XSD_UpdateLastSyncedSys((CNAS_PRL_1X_SYSTEM_ID_STRU *)&pstSyncCnf->stSyncedSysId);
+
+        /* 通知MSCC新的SID,NID指示 */
+        CNAS_XSD_SndMsccSidNidInd(pstSyncCnf->stSyncedSysId.usSid, pstSyncCnf->stSyncedSysId.usNid);
+    }
+
+   /***********************************************************************************************
+     * 4. 更新同步到系统到历史同步的系统列表中
+     **********************************************************************************************/
+    CNAS_XSD_UpdateHistorySyncedSysFreqList((CNAS_PRL_FREQENCY_CHANNEL_STRU *)&(pstSyncCnf->stFreq));
+
+    /***********************************************************************************************
+     * 5. 刷新同步成功场景下的scan list中频点状态
+     **********************************************************************************************/
+    CNAS_XSD_UpdateChanStatusUponRcvCasSyncCnfSucc_SysAcq(pstSyncCnf);
+
+    /***********************************************************************************************
+     * 6. 进行根据场景进行系统选择
+     **********************************************************************************************/
+    CNAS_XSD_PerformSystemSelectionAfterSyncSucc_SysAcq(pstSyncCnf);
+
+    return;
+}
+
+
+
+VOS_VOID CNAS_XSD_ProcCasSyncCnfFail_SysAcq(
+    CAS_CNAS_1X_SYSTEM_SYNC_CNF_STRU   *pstSyncCnf
+)
+{
+    CNAS_XSD_GEO_SYS_RECORD_SRCH_LIST_STRU                 *pstGeoSysRecSrchList = VOS_NULL_PTR;
+    CNAS_XSD_SCAN_CHANNEL_LIST_STRU                        *pstEmcScanChanList   = VOS_NULL_PTR;
+    CNAS_XSD_SYS_ACQ_SCENE_ENUM_UINT32                      enCurAcqScene;
+    VOS_UINT16                                              usUpdateSyncFailFreqNum;
+    VOS_UINT32                                              ulIsCallAbort;
+
+    usUpdateSyncFailFreqNum             = (VOS_UINT16)pstSyncCnf->ulSyncFailFreqNum;
+    ulIsCallAbort                       = VOS_FALSE;
+
+    pstEmcScanChanList                  = CNAS_XSD_GetEmcCallRedialScanChanListAddr();
+
+    /***********************************************************************************************
+     * 1. 如果当前RF available为FALSE，通知上层RF available
+     **********************************************************************************************/
+    /* SRLTE下，sync cnf no rf的场景下服用当前接口，no rf的场景不上报mscc rf可用 */
+    if ((VOS_FALSE              == CNAS_CCB_Get1XRfAvailFlg())
+     && (CNAS_CAS_1X_RSLT_NO_RF != pstSyncCnf->enSyncRslt))
+    {
+        /* 上报MSCC NO RF消息 */
+        CNAS_XSD_SndMsccRfAvailInd(VOS_TRUE);
+
+        /* 设置当前RF可用标记为:RF可用 */
+        CNAS_CCB_Set1XRfAvailFlg(VOS_TRUE);
+    }
+
+    /***********************************************************************************************
+     * 2. 非锁频时,且非Avoid频点同步场景，允许操作avoid频点
+     **********************************************************************************************/
+    if (VOS_FALSE == CNAS_XSD_GetFreqLockMode())
+    {
+        /* 非Avoid搜网，非锁频模式下才操作Avoid频点 */
+        if (VOS_TRUE != CNAS_XSD_GetAvoidSysAcqListFlg_SysAcq())
+        {
+            /* 处理系统同步确认消息中需要被禁的频点 */
+            CNAS_XSD_ProcFreqAvoidedInCasSyncCnf(pstSyncCnf);
+        }
+    }
+
+    /***********************************************************************************************
+     * 3. 刷新同步失败的频点scan list
+     **********************************************************************************************/
+    CNAS_XSD_UpdateChanStatusUponRcvCasSyncCnfFail_SysAcq(pstSyncCnf);
+
+    /* SRLTE 1x搜网不申请资源，SYNC CNF结果是NO RF，不刷该频点状态，下一轮继续同步该频点 */
+    if ((CNAS_CCB_VERSION_SRLTE                 == CNAS_CCB_IsVersionSrlte())
+     && (CNAS_CAS_1X_RSLT_NO_RF                 == pstSyncCnf->enSyncRslt)
+     && (0                                      != usUpdateSyncFailFreqNum))
+    {
+        usUpdateSyncFailFreqNum = (VOS_UINT16)pstSyncCnf->ulSyncFailFreqNum - 1;
+    }
+
+    /* 紧急场景的SD搜网，刷新紧急呼的频点列表，避免后续重复搜同步失败的频点 */
+    if (VOS_NULL_PTR != pstEmcScanChanList->pstScanChanInfo)
+    {
+        if (VOS_TRUE == CNAS_XSD_IsEmcSDSysAcq_SysAcq(CNAS_XSD_GetCurSysAcqScene_SysAcq()))
+        {
+
+            (VOS_VOID)CNAS_XSD_UpdateSyncFailChanStatus(pstEmcScanChanList->usCurScanIndex,
+                                                        usUpdateSyncFailFreqNum,
+                                                        pstSyncCnf->astSyncRsltList,
+                                                        pstEmcScanChanList);
+        }
+    }
+
+    /***********************************************************************************************
+     * 4. 处理GEO系统记录搜索列表状态
+     **********************************************************************************************/
+    pstGeoSysRecSrchList = CNAS_XSD_GetGeoSysRecSrchListAddr_SysAcq();
+
+    if (VOS_NULL_PTR != pstGeoSysRecSrchList->pstAcqSysInfo)
+    {
+        /***********************************************************************************************
+         * 4.1. 刷新GEO系统记录搜索列表中的频点为搜索不存在
+         **********************************************************************************************/
+        CNAS_XSD_UpdateSyncFailFreqStatusInGeoSysRecordSrchList_SysAcq( usUpdateSyncFailFreqNum,
+                                                                       &pstSyncCnf->astSyncRsltList[0]);
+
+
+
+        /*******************************************************************************************
+         * 4.2. 继续GEO系统记录搜索列表搜索
+         ******************************************************************************************/
+        CNAS_XSD_ContinueGeoSysRecordSrch();
+
+        return;
+    }
+
+    /***********************************************************************************************
+     * 5. 当前是非GEO搜索，且搜索失败，满足下面任一条件，退出当前搜网
+        a)呼叫重播搜网列表不为空，搜索场景是LTE\HRPD连接态下的1X搜网
+        b)LTE\HRPD从idle态到连接态，
+     **********************************************************************************************/
+    enCurAcqScene = CNAS_XSD_GetCurSysAcqScene_SysAcq();
+
+    if (VOS_TRUE == CNAS_XSD_IsAllowedPerformAbortProcedure_SysAcq(enCurAcqScene, &ulIsCallAbort))
+    {
+        CNAS_XSD_PerformAbortCurrSysAcqScene_SysAcq(ulIsCallAbort);
+        return;
+    }
+
+
+    /***********************************************************************************************
+     * 6. 调用GEO系统记录搜索list不存在的处理流程
+     **********************************************************************************************/
+    CNAS_XSD_ProcSyncFailAndNoGeoSysRecorSearchList_SysAcq(pstSyncCnf);
+
+    return;
+}
+
+
+VOS_VOID CNAS_XSD_ProcCasSyncCnfNoRf_SysAcq(
+    CAS_CNAS_1X_SYSTEM_SYNC_CNF_STRU   *pstSyncCnf
+)
+{
+    /***********************************************************************************************
+     * 如果当前是SRLTE，查看同步失败的频点中是否有NO RF
+     **********************************************************************************************/
+    if (CNAS_CCB_VERSION_SRLTE == CNAS_CCB_IsVersionSrlte())
+    {
+        if (CNAS_TIMER_STATUS_RUNNING == CNAS_GetSpecifiedTimerStatus(UEPS_PID_XSD, TI_CNAS_XSD_SYS_ACQ_NO_RF_PROTECT_TIMER, 0))
+        {
+            /* 如果当前是SRLTE，同步失败的频点中有NO RF的，并且此时保护定时器未超时，需要继续同步，
+             * 该NO RF频点不刷新，下一轮继续同步*/
+            CNAS_XSD_ProcCasSyncCnfFail_SysAcq(pstSyncCnf);
+            return;
+        }
+    }
+
+
+    /***********************************************************************************************
+     * 对于NO RF场景，直接退出当前状态机
+     **********************************************************************************************/
+    /* 将层二运行结果通知层一，层一收到此消息后进行层一状态的迁移 */
+    CNAS_XSD_SndSysAcqRslt(CNAS_XSD_SYSTEM_ACQUIRED_RESULT_FAILURE, CNAS_XSD_SYS_ACQ_SCENE_NO_RF, VOS_FALSE, CNAS_XSD_GetOocTotalTimerExpiredFlg_SysAcq());
+
+    /* 退出层二状态机 */
+    CNAS_XSD_QuitFsmSysAcq_SysAcq();
+}
+
+
+
+VOS_VOID CNAS_XSD_ProcScanListSyncComplete_SysAcq(VOS_VOID)
+{
+    CNAS_XSD_SYS_ACQ_SCENE_ENUM_UINT32                      enScanScene;
+    VOS_UINT16                                              usFreqNum;
+    CNAS_PRL_FREQENCY_CHANNEL_STRU                          astFreqList[CNAS_CAS_1X_MAX_FREQ_NUM];
+
+    enScanScene   = CNAS_XSD_GetCurSysAcqScene_SysAcq();
+
+    usFreqNum     = 0;
+
+    NAS_MEM_SET_S(&astFreqList[0],
+                  sizeof(CNAS_PRL_FREQENCY_CHANNEL_STRU) * CNAS_CAS_1X_MAX_FREQ_NUM,
+                  0x00,
+                  sizeof(CNAS_PRL_FREQENCY_CHANNEL_STRU) * CNAS_CAS_1X_MAX_FREQ_NUM);
+
+    /***********************************************************************************************
+    * 1. 同步available系统
+     **********************************************************************************************/
+    if (VOS_TRUE == CNAS_XSD_IsAcquireAvaialSysNeeded(enScanScene))
+    {
+        /* 设置标志: 当前捕获频点是来自available system list */
+        CNAS_XSD_SetAvailSysAcqListFlg_SysAcq(VOS_TRUE);
+
+        CNAS_XSD_GetNextAvailSysAcqList_SysAcq(&usFreqNum, &astFreqList[0]);
+
+        /* 数据连接态下搜索1x网络，每两次sync req之间加个缓冲时间 */
+        if (VOS_FALSE == CNAS_XSD_IsAllowedSyncImmediatelyWhenLteDoConn_SysAcq(VOS_FALSE))
+        {
+            /* 保存下一轮将要同步的频点，起延时定时器 */
+            CNAS_XSD_SaveLteOrDoConn1xSysAcqSyncDelayFreq(usFreqNum, &astFreqList[0]);
+            CNAS_XSD_SetCurrFsmState(CNAS_XSD_SYS_ACQ_STA_WAIT_SYNC_DELAY_TIMER_EXPIRED_WHEN_LTE_OR_DO_CONN);
+            CNAS_XSD_StartTimer(TI_CNAS_XSD_SYS_ACQ_WHEN_LTE_OR_DO_CONN_SYNC_DELAY_TIMER,
+                                CNAS_XSD_GetLteOrDoConn1xSysAcqSyncDelayTimerLen());
+        }
+        else
+        {
+            CNAS_XSD_ContinueSyncScanList_SysAcq(usFreqNum, &astFreqList[0]);
+        }
+
+        return;
+    }
+
+    /***********************************************************************************************
+     * 2. 无available系统尝试同步Avoid系统
+     **********************************************************************************************/
+    if (VOS_TRUE == CNAS_XSD_IsAcquireAvoidSysNeeded(enScanScene))
+    {
+        /* 发送同步请求，同步Avoid系统 */
+        CNAS_XSD_GetNextAvoidSysAcqList_SysAcq(&usFreqNum, &astFreqList[0]);
+
+        if (0 != usFreqNum)
+        {
+            CNAS_XSD_SetAvoidSysAcqListFlg_SysAcq(VOS_TRUE);
+
+            /* 数据连接态下搜索1x网络，每两次sync req之间加个缓冲时间 */
+            if (VOS_FALSE == CNAS_XSD_IsAllowedSyncImmediatelyWhenLteDoConn_SysAcq(VOS_FALSE))
+            {
+                /* 保存下一轮将要同步的频点，起延时定时器 */
+                CNAS_XSD_SaveLteOrDoConn1xSysAcqSyncDelayFreq(usFreqNum, &astFreqList[0]);
+                CNAS_XSD_SetCurrFsmState(CNAS_XSD_SYS_ACQ_STA_WAIT_SYNC_DELAY_TIMER_EXPIRED_WHEN_LTE_OR_DO_CONN);
+                CNAS_XSD_StartTimer(TI_CNAS_XSD_SYS_ACQ_WHEN_LTE_OR_DO_CONN_SYNC_DELAY_TIMER,
+                                    CNAS_XSD_GetLteOrDoConn1xSysAcqSyncDelayTimerLen());
+            }
+            else
+            {
+                CNAS_XSD_ContinueSyncScanList_SysAcq(usFreqNum, &astFreqList[0]);
+            }
+
+            return;
+        }
+    }
+
+    /***********************************************************************************************
+     * 3. 无需进行Avoid或Available系统同步，搜网失败
+     **********************************************************************************************/
+    /* 将层二运行结果通知层一，层一收到此消息后进行层一状态的迁移 */
+    CNAS_XSD_SndSysAcqRslt(CNAS_XSD_SYSTEM_ACQUIRED_RESULT_FAILURE,
+                           CNAS_XSD_GetCurSysAcqScene_SysAcq(),
+                           CNAS_XSD_IsImmediateSysAcq_SysAcq(),
+                           CNAS_XSD_GetOocTotalTimerExpiredFlg_SysAcq());
+
+    /* 退出层二状态机 */
+    CNAS_XSD_QuitFsmSysAcq_SysAcq();
+
+    return;
+}
+
+
+VOS_VOID CNAS_XSD_ContinueSyncScanList_SysAcq(
+    VOS_UINT16                          usDstChanNum,
+    CNAS_PRL_FREQENCY_CHANNEL_STRU     *pstDstChan
+)
+{
+    VOS_UINT32                          ulWaitCasSyncCnfTimerLen;
+
+    ulWaitCasSyncCnfTimerLen = CNAS_XSD_GetWaitCasSystemSyncCnfTimerLen(usDstChanNum);
+
+    CNAS_XSD_SndCasSysSyncReq(usDstChanNum, pstDstChan);
+
+    /* 迁移到 CNAS_XSD_SYS_ACQ_STA_WAIT_CAS_SYNC_CNF状态, 并启动保护定时器TI_CNAS_XSD_WAIT_CAS_SYSTEM_SYNC_CNF */
+    CNAS_XSD_SetCurrFsmState(CNAS_XSD_SYS_ACQ_STA_WAIT_CAS_SYNC_CNF);
+    CNAS_XSD_StartTimer(TI_CNAS_XSD_WAIT_CAS_SYSTEM_SYNC_CNF, ulWaitCasSyncCnfTimerLen);
+
+    return;
+}
+
+
+VOS_VOID CNAS_XSD_PeformBestPreferedSystemSelectionUsingNewGeo_SysAcq(
+    CNAS_PRL_MATCHED_GEO_LIST_INFO_STRU                    *pstGeoListInfo,
+    CNAS_PRL_1X_SYSTEM_STRU                                *pstCurSysInfo,
+    VOS_UINT32                                              ulIsNegSys
+)
+{
+    CNAS_XSD_GEO_SYS_RECORD_SRCH_LIST_STRU                 *pstGeoSysRecSrchList = VOS_NULL_PTR;
+    CNAS_CAS_1X_SYSTEM_IDENTITY_STRU                        stCurrSysId;
+    CNAS_CAS_1X_SYNC_RSLT_INFO_STRU                         stSyncFailChan;
+    CNAS_CAS_1X_FREQENCY_CHANNEL_STRU                       stFreq;
+    CNAS_PRL_FREQENCY_CHANNEL_STRU                          astDstChan[CNAS_CAS_1X_MAX_FREQ_NUM];
+    VOS_UINT16                                              usDstChanNum;
+    CNAS_XSD_SYS_ACQ_SCENE_ENUM_UINT32                      enCurAcqScene;
+    VOS_UINT32                                              ulIsCallAbort;
+
+    /***********************************************************************************************
+     * 1. 刷新GEO搜索列表中本次搜索GEO为已搜索
+     **********************************************************************************************/
+    CNAS_XSD_UpdateGeoListSrchStatus(pstGeoListInfo, VOS_TRUE);
+
+    /***********************************************************************************************
+     * 2. 构造新的GEO搜索列表
+     **********************************************************************************************/
+    pstGeoSysRecSrchList = CNAS_XSD_GetGeoSysRecSrchListAddr_SysAcq();
+
+    NAS_MEM_SET_S(pstGeoSysRecSrchList, sizeof(CNAS_XSD_GEO_SYS_RECORD_SRCH_LIST_STRU), 0, sizeof(CNAS_XSD_GEO_SYS_RECORD_SRCH_LIST_STRU));
+
+    CNAS_XSD_ConstructGeoSysRecordSrchList(pstGeoListInfo, pstCurSysInfo, pstGeoSysRecSrchList);
+
+    if (VOS_NULL_PTR == pstGeoSysRecSrchList->pstAcqSysInfo)
+    {
+        /* 内存分配失败，直接返回 */
+        return;
+    }
+
+    CNAS_XSD_LogAcqSystemList(pstGeoSysRecSrchList);
+
+    if (VOS_FALSE == ulIsNegSys)
+    {
+        stFreq.usBandClass = pstCurSysInfo->stFreq.enBandClass;
+        stFreq.usChannel   = pstCurSysInfo->stFreq.usChannel;
+
+        stCurrSysId.usNid  = pstCurSysInfo->usNid;
+        stCurrSysId.usSid  = pstCurSysInfo->usSid;
+
+        /* 刷新当前同步成功的频点状态，GEO中系统记录搜索列表中最match的系统频点刷新为搜索存在，
+         * 其他系统记录的频点刷新为搜索不存在 */
+        CNAS_XSD_UpdateSyncSuccFreqStatusInGeoSysRecordSrchList_SysAcq(&stFreq,
+                                                                       &stCurrSysId);
+
+        /* 先提前通知上层服务状态 */
+        CNAS_XSD_ReportSrvAvailableInd_SysAcq(pstCurSysInfo);
+    }
+    else
+    {
+        NAS_MEM_SET_S(&stSyncFailChan, sizeof(stSyncFailChan), 0, sizeof(CNAS_CAS_1X_SYNC_RSLT_INFO_STRU));
+
+        stSyncFailChan.stFreq.usBandClass = pstCurSysInfo->stFreq.enBandClass;
+        stSyncFailChan.stFreq.usChannel   = pstCurSysInfo->stFreq.usChannel;
+
+        /* 当前系统是negative系统，刷新GEO中系统记录搜索列表中对应的频点为搜索不存在 */
+        CNAS_XSD_UpdateSyncFailFreqStatusInGeoSysRecordSrchList_SysAcq(1, &stSyncFailChan);
+
+        /* 当该系统是neg时，需刷新该频点为不存在，如果不刷新的话，继续同步仍然会同步该频点
+           获取下一个同步频点时的逻辑为未同步或者同步存在 */
+        CNAS_XSD_UpdateAvailOrNegSystemChanStatusInScanChanList_SysAcq(&pstCurSysInfo->stFreq,
+                                                                       CNAS_XSD_GetScanChanListAddr());
+    }
+
+    /***********************************************************************************************
+     * 3. 如果当前系统就是最高优先级系统，通知接入层驻留
+     **********************************************************************************************/
+    /* 根据scan list里列表中的频点状态，刷新GEO系统记录搜索列表中的频点状态及下次搜索索引 */
+    CNAS_XSD_UpdateGeoSysRecordListInfoAccordingToScanChanList(pstGeoSysRecSrchList);
+
+    if (VOS_TRUE == CNAS_XSD_IsCurrSysMostPref1xSysInGeoSysRecordSrchList(pstCurSysInfo, pstGeoSysRecSrchList))
+    {
+
+        /* 发送ID_CNAS_CAS_1X_CAMP_SYNCED_CHANNEL_NTF */
+        CNAS_XSD_SndCas1xCampSyncedChannelNtf();
+
+        /* 迁移到 CNAS_XSD_SYS_ACQ_STA_WAIT_CAS_OHM_IND状态, 并启动保护定时器TI_CNAS_XSD_WAIT_CAS_OHM_IND */
+        CNAS_XSD_SetCurrFsmState(CNAS_XSD_SYS_ACQ_STA_WAIT_CAS_OHM_IND);
+
+        /* 启动保护定时器 */
+        CNAS_XSD_StartTimer(TI_CNAS_XSD_WAIT_CAS_OHM_IND, TI_CNAS_XSD_WAIT_CAS_OHM_IND_LEN);
+
+        return;
+    }
+
+    /*******************************************************************************************
+     * 4. 继续GEO系统记录搜索列表搜索
+     ******************************************************************************************/
+    usDstChanNum = 0;
+
+    NAS_MEM_SET_S(&astDstChan[0], sizeof(astDstChan), 0, sizeof(astDstChan));
+
+    CNAS_XSD_GetNextSysSyncListFromGeoSysRecordSrchList(CNAS_XSD_GetGeoSysRecSrchListAddr_SysAcq(),
+                                                        &usDstChanNum,
+                                                        &astDstChan[0]);
+
+    if (0 != usDstChanNum)
+    {
+        /* 数据连接态下搜索1x网络，每两次sync req之间加个缓冲时间 */
+        if (VOS_FALSE == CNAS_XSD_IsAllowedSyncImmediatelyWhenLteDoConn_SysAcq(VOS_TRUE))
+        {
+            /* 保存下一轮将要同步的频点，起延时定时器 */
+            CNAS_XSD_SaveLteOrDoConn1xSysAcqSyncDelayFreq(usDstChanNum, &astDstChan[0]);
+            CNAS_XSD_SetCurrFsmState(CNAS_XSD_SYS_ACQ_STA_WAIT_SYNC_DELAY_TIMER_EXPIRED_WHEN_LTE_OR_DO_CONN);
+            CNAS_XSD_StartTimer(TI_CNAS_XSD_SYS_ACQ_WHEN_LTE_OR_DO_CONN_SYNC_DELAY_TIMER,
+                                CNAS_XSD_GetLteOrDoConn1xSysAcqSyncDelayTimerLen());
+        }
+        else
+        {
+            /* 继续GEO系统记录频点同步操作 */
+            CNAS_XSD_ContinueSyncScanList_SysAcq(usDstChanNum, &astDstChan[0]);
+        }
+
+        return;
+    }
+
+    /*******************************************************************************************
+     * 5. 清除GEO搜索列表状态以及释放GEO系统记录搜索列表内存
+     ******************************************************************************************/
+    /* 先清除GEO搜索列表状态 */
+    CNAS_XSD_ClearGeoSrchListStatus();
+
+    /* LOG GEO list搜索状态信息 */
+    CNAS_XSD_LogGeoListSrchStatus(CNAS_XSD_GetGeoSrchListInfoAddr());
+
+    /* 释放GEO系统记录搜索列表的内存 */
+    if (VOS_NULL_PTR != CNAS_XSD_GetGeoSysRecSrchListAddr_SysAcq()->pstAcqSysInfo)
+    {
+        PS_MEM_FREE(UEPS_PID_XSD, CNAS_XSD_GetGeoSysRecSrchListAddr_SysAcq()->pstAcqSysInfo);
+        CNAS_XSD_GetGeoSysRecSrchListAddr_SysAcq()->pstAcqSysInfo = VOS_NULL_PTR;
+    }
+
+    /*******************************************************************************************
+     * 6. GEO搜索结束，需要继续同步scanlist，满足下面任一条件，打断当前搜网流程。
+       a)如果之前有收到呼叫重播搜网，
+       b)当前搜网场景不是CNAS_XSD_SYS_ACQ_SCENE_SYSTEM_LOST_WITH_LTE_OR_DO_CONN，且当前是LTE\HRPD连接态
+     ******************************************************************************************/
+    enCurAcqScene       = CNAS_XSD_GetCurSysAcqScene_SysAcq();
+
+    if (VOS_TRUE == CNAS_XSD_IsAllowedPerformAbortProcedure_SysAcq(enCurAcqScene, &ulIsCallAbort))
+    {
+        CNAS_XSD_PerformAbortCurrSysAcqScene_SysAcq(ulIsCallAbort);
+        return;
+    }
+
+    /*******************************************************************************************
+     * 7. 继续scan list频点列表搜索
+     ******************************************************************************************/
+    usDstChanNum = 0;
+    NAS_MEM_SET_S(&astDstChan[0], sizeof(astDstChan), 0, sizeof(astDstChan));
+
+    CNAS_XSD_GetNextScanChanList_SysAcq(CNAS_XSD_GetCurChannelScanIndex(),
+                                        &usDstChanNum,
+                                        astDstChan,
+                                        CNAS_XSD_GetScanChanListAddr());
+
+    if (0 != usDstChanNum)
+    {
+        /* 数据连接态下搜索1x网络，每两次sync req之间加个缓冲时间 */
+        if (VOS_FALSE == CNAS_XSD_IsAllowedSyncImmediatelyWhenLteDoConn_SysAcq(VOS_FALSE))
+        {
+            /* 保存下一轮将要同步的频点，起延时定时器 */
+            CNAS_XSD_SaveLteOrDoConn1xSysAcqSyncDelayFreq(usDstChanNum, &astDstChan[0]);
+            CNAS_XSD_SetCurrFsmState(CNAS_XSD_SYS_ACQ_STA_WAIT_SYNC_DELAY_TIMER_EXPIRED_WHEN_LTE_OR_DO_CONN);
+            CNAS_XSD_StartTimer(TI_CNAS_XSD_SYS_ACQ_WHEN_LTE_OR_DO_CONN_SYNC_DELAY_TIMER,
+                                CNAS_XSD_GetLteOrDoConn1xSysAcqSyncDelayTimerLen());
+        }
+        else
+        {
+            /* scan list未全部同步完，继续发同步请求 */
+            CNAS_XSD_ContinueSyncScanList_SysAcq(usDstChanNum, astDstChan);
+        }
+
+        return;
+    }
+
+    /*******************************************************************************************
+     * 8. 处理scan list同步完成的后续流程
+     ******************************************************************************************/
+    /* scan list已全部同步完 */
+    CNAS_XSD_ProcScanListSyncComplete_SysAcq();
+}
+
+
+VOS_VOID CNAS_XSD_ContinueSysSync_SysAcq(VOS_VOID)
+{
+    CNAS_XSD_SCAN_CHANNEL_LIST_STRU                        *pstScanList          = VOS_NULL_PTR;
+    CNAS_XSD_GEO_SYS_RECORD_SRCH_LIST_STRU                 *pstGeoSysRecSrchList = VOS_NULL_PTR;
+    CNAS_PRL_FREQENCY_CHANNEL_STRU                          astDstChan[CNAS_CAS_1X_MAX_FREQ_NUM];
+    VOS_UINT16                                              usCurScanListIndex;
+    VOS_UINT16                                              usDstChanNum;
+
+    /***********************************************************************************************
+     * 1. 如果是available系统同步，继续available系统同步
+     **********************************************************************************************/
+    if (VOS_TRUE == CNAS_XSD_GetAvailSysAcqListFlg_SysAcq())
+    {
+        CNAS_XSD_ContinueAvailSysListSrch();
+
+        return;
+    }
+
+    /* 如果avoid系统同步，继续avoid系统同步 */
+    if (VOS_TRUE == CNAS_XSD_GetAvoidSysAcqListFlg_SysAcq())
+    {
+        CNAS_XSD_ContinueAvoidSysListSrch();
+
+        return;
+    }
+
+    /***********************************************************************************************
+     * 2. 处理GEO系统记录搜索列表存在的场景
+     **********************************************************************************************/
+    pstGeoSysRecSrchList = CNAS_XSD_GetGeoSysRecSrchListAddr_SysAcq();
+
+    if (VOS_NULL_PTR != pstGeoSysRecSrchList->pstAcqSysInfo)
+    {
+        CNAS_XSD_ContinueGeoSysRecordSrch();
+
+        return;
+    }
+
+    /***********************************************************************************************
+     * 3. 继续scan list频点搜索
+     **********************************************************************************************/
+    usDstChanNum       = 0;
+    pstScanList        = CNAS_XSD_GetScanChanListAddr();
+    usCurScanListIndex = CNAS_XSD_GetCurChannelScanIndex();
+
+    CNAS_XSD_GetNextScanChanList_SysAcq(usCurScanListIndex, &usDstChanNum, astDstChan, pstScanList);
+
+    if (0 != usDstChanNum)
+    {
+        /* 数据连接态下搜索1x网络，每两次sync req之间加个缓冲时间 */
+        if (VOS_FALSE == CNAS_XSD_IsAllowedSyncImmediatelyWhenLteDoConn_SysAcq(VOS_FALSE))
+        {
+            /* 保存下一轮将要同步的频点，起延时定时器 */
+            CNAS_XSD_SaveLteOrDoConn1xSysAcqSyncDelayFreq(usDstChanNum, &astDstChan[0]);
+            CNAS_XSD_SetCurrFsmState(CNAS_XSD_SYS_ACQ_STA_WAIT_SYNC_DELAY_TIMER_EXPIRED_WHEN_LTE_OR_DO_CONN);
+            CNAS_XSD_StartTimer(TI_CNAS_XSD_SYS_ACQ_WHEN_LTE_OR_DO_CONN_SYNC_DELAY_TIMER,
+                                CNAS_XSD_GetLteOrDoConn1xSysAcqSyncDelayTimerLen());
+        }
+        else
+        {
+            CNAS_XSD_ContinueSyncScanList_SysAcq(usDstChanNum, &astDstChan[0]);
+        }
+
+        return;
+    }
+
+    /***********************************************************************************************
+     * 4. scan list搜索完成处理
+     **********************************************************************************************/
+    CNAS_XSD_ProcScanListSyncComplete_SysAcq();
+
+    return;
+}
+
+
+CNAS_XSD_SYS_ACQ_SCENE_ENUM_UINT32 CNAS_XSD_GetCurSysAcqScene_SysAcq(VOS_VOID)
+{
+    CNAS_XSD_MSG_STRU                                      *pstEntryMsg  = VOS_NULL_PTR;
+    CNAS_XSD_XSD_SYSTEM_ACQUIRED_REQ_STRU                  *pstIntSysAcqReq = VOS_NULL_PTR;
+    MSCC_XSD_SYSTEM_ACQUIRE_REQ_STRU                       *pstSysAqcReq    = VOS_NULL_PTR;
+
+    /* 获得当前处理CNAS XSD入口消息的缓冲区地址 */
+    pstEntryMsg                 = CNAS_XSD_GetCurrFsmEntryMsgAddr();
+
+    if (CNAS_BuildEventType(UEPS_PID_MSCC, ID_MSCC_XSD_SYSTEM_ACQUIRE_REQ)
+            == pstEntryMsg->ulEventType)
+    {
+        pstSysAqcReq = (MSCC_XSD_SYSTEM_ACQUIRE_REQ_STRU *)pstEntryMsg->aucMsgBuffer;
+
+        if (MSCC_XSD_SYS_ACQ_TYPE_NORMAL == pstSysAqcReq->enSysAcqType)
+        {
+            return CNAS_XSD_SYS_ACQ_SCENE_SWITCH_ON;
+        }
+        else
+        {
+            return CNAS_XSD_SYS_ACQ_SCENE_POWER_ON_INIT_SEARCH;
+        }
+    }
+
+    if (CNAS_BuildEventType(UEPS_PID_XSD, ID_CNAS_XSD_XSD_SYSTEM_ACQUIRED_REQ)
+            == pstEntryMsg->ulEventType)
+    {
+        pstIntSysAcqReq = (CNAS_XSD_XSD_SYSTEM_ACQUIRED_REQ_STRU *)pstEntryMsg->aucMsgBuffer;
+
+        return pstIntSysAcqReq->enSysAcqScene;
+    }
+
+    return CNAS_XSD_SYS_ACQ_SCENE_BUTT;
+}
+
+
+VOS_UINT8 CNAS_XSD_IsImmediateSysAcq_SysAcq(VOS_VOID)
+{
+    CNAS_XSD_SYS_ACQ_SCENE_ENUM_UINT32  enSysAcqScene;
+
+    enSysAcqScene = CNAS_XSD_GetCurSysAcqScene_SysAcq();
+
+    /* call release场景scan list构表已经修改，采用一次构表(见call release场景下的build scan list函数)
+     * 因此失败时，不用立即搜网
+     */
+    /* call release with redir的场景需要立即搜 */
+    if (CNAS_XSD_SYS_ACQ_SCENE_CALL_RELEASED_WITH_REDIR == enSysAcqScene)
+    {
+        return VOS_TRUE;
+    }
+
+    return VOS_FALSE;
+}
+
+
+VOS_UINT32 CNAS_XSD_IsEmergencySysAcq_SysAcq(
+    CNAS_XSD_SYS_ACQ_SCENE_ENUM_UINT32                      enSysAcqScene
+)
+{
+    switch(enSysAcqScene)
+    {
+        case CNAS_XSD_SYS_ACQ_SCENE_EMC_CALLBACK_SYSTEM_LOST:
+        case CNAS_XSD_SYS_ACQ_SCENE_EMERGENCY_CALL:
+        case CNAS_XSD_SYS_ACQ_SCENE_EMC_CALL_RELEASED:
+            return VOS_TRUE;
+
+        default:
+            return CNAS_XSD_IsEmcSDSysAcq_SysAcq(enSysAcqScene);
+    }
+}
+
+VOS_UINT32 CNAS_XSD_IsEmcSDSysAcq_SysAcq(
+    CNAS_XSD_SYS_ACQ_SCENE_ENUM_UINT32                      enSysAcqScene
+)
+{
+    switch(enSysAcqScene)
+    {
+        case CNAS_XSD_SYS_ACQ_SCENE_REGIS_REJ_WITH_REDIR_AND_RTF_EMC:
+        case CNAS_XSD_SYS_ACQ_SCENE_SYS_RESEL_NOT_IN_PRL_OR_NEG_EMC:
+        case CNAS_XSD_SYS_ACQ_SCENE_SYS_RESEL_IN_PRL_AND_PREF_EMC:
+        case CNAS_XSD_SYS_ACQ_SCENE_SYSTEM_LOST_SKIP_MRU0_EMC:
+        case CNAS_XSD_SYS_ACQ_SCENE_REDIRECTION_WITH_INVALID_GSRDM_EMC:
+        case CNAS_XSD_SYS_ACQ_SCENE_MAX_ACCESS_FAILURE_IN_PRL_EMC:
+        case CNAS_XSD_SYS_ACQ_SCENE_MAX_ACCESS_FAILURE_NOT_IN_PRL_EMC:
+            return VOS_TRUE;
+
+        default:
+            return VOS_FALSE;
+    }
+}
+
+
+VOS_VOID CNAS_XSD_GetNextAvailSysAcqList_SysAcq(
+    VOS_UINT16                                             *pusFreqNum,
+    CNAS_PRL_FREQENCY_CHANNEL_STRU                         *pstFreqList
+)
+{
+    CNAS_XSD_AVAILABLE_LIST_STRU       *pstAvailSysList = VOS_NULL_PTR;
+    VOS_UINT16                          i;
+
+    VOS_UINT16                          usMaxFreqNum;
+
+    usMaxFreqNum    = CNAS_CAS_1X_MAX_FREQ_NUM;
+
+    pstAvailSysList = CNAS_XSD_GetAvailSysFreqListAddr();
+
+    *pusFreqNum = 0;
+
+    usMaxFreqNum = CNAS_XSD_GetMaxSyncFreqNumOfScanList(usMaxFreqNum);
+
+    for (i = pstAvailSysList->ucNextSrchIndex;
+         i < CNAS_MIN(pstAvailSysList->ucAvailSysNum, CNAS_XSD_MAX_AVAILABLE_SYS_NUM);
+         i++
+         )
+    {
+
+        pstFreqList->enBandClass = pstAvailSysList->astAvailSystem[i].stFreq.enBandClass;
+        pstFreqList->usChannel   = pstAvailSysList->astAvailSystem[i].stFreq.usChannel;
+
+        pstFreqList++;
+        (*pusFreqNum)++;
+
+        if (*pusFreqNum == usMaxFreqNum)
+        {
+            return;
+        }
+    }
+
+    return;
+}
+
+
+
+VOS_VOID CNAS_XSD_GetNextAvoidSysAcqList_SysAcq(
+    VOS_UINT16                                             *pusFreqNum,
+    CNAS_PRL_FREQENCY_CHANNEL_STRU                         *pstFreqList
+)
+{
+    CNAS_XSD_AVOID_FREQ_LIST_STRU      *pstAvoidSysList = VOS_NULL_PTR;
+    CNAS_XSD_SCAN_CHANNEL_LIST_STRU    *pstScanChanList = VOS_NULL_PTR;
+    VOS_UINT16                          i;
+    VOS_UINT16                          usMaxChanScanNum;
+
+    pstAvoidSysList = CNAS_XSD_GetAvoidFreqListAddr();
+    pstScanChanList = CNAS_XSD_GetScanChanListAddr();
+
+    *pusFreqNum = 0;
+    usMaxChanScanNum = CNAS_XSD_GetMaxSyncFreqNumOfScanList(CNAS_CAS_1X_MAX_FREQ_NUM);
+
+    CNAS_XSD_LogAvoidFreqList(CNAS_XSD_GetAvoidFreqListAddr());
+
+    for (i = pstAvoidSysList->ucNextAcqIndex; i < CNAS_MIN(pstAvoidSysList->ucAvoidFreqNum, CNAS_XSD_MAX_AVOID_FREQ_NUM); i++)
+    {
+        if (VOS_FALSE == pstAvoidSysList->astAvoidFreqInfo[i].ucAvoidFlag)
+        {
+            continue;
+        }
+
+        /* 本轮搜网已经同步过的频点被AVOID，则不再重复同步 */
+        if (VOS_TRUE == CNAS_XSD_IsCurFreqSynced(&(pstAvoidSysList->astAvoidFreqInfo[i].stAvoidFreq),
+                                                 pstScanChanList))
+        {
+            continue;
+        }
+
+        pstFreqList->enBandClass = pstAvoidSysList->astAvoidFreqInfo[i].stAvoidFreq.enBandClass;
+        pstFreqList->usChannel   = pstAvoidSysList->astAvoidFreqInfo[i].stAvoidFreq.usChannel;
+
+        pstFreqList++;
+        (*pusFreqNum)++;
+
+        if (*pusFreqNum == usMaxChanScanNum)
+        {
+            return;
+        }
+    }
+
+    return;
+}
+
+
+VOS_VOID CNAS_XSD_UpdateSyncFailFreqStatusInGeoSysRecordSrchList_SysAcq(
+    VOS_UINT16                          usSyncFailChanNum,
+    CNAS_CAS_1X_SYNC_RSLT_INFO_STRU    *pstSyncFailChanList
+)
+{
+    CNAS_XSD_GEO_SYS_RECORD_SRCH_LIST_STRU                 *pstGeoSysRecSrchList = VOS_NULL_PTR;
+    CNAS_XSD_SCAN_CHAN_STATUS_ENUM_UINT8                    enSysStatus;
+    VOS_UINT16                                              i;
+
+    pstGeoSysRecSrchList = CNAS_XSD_GetGeoSysRecSrchListAddr_SysAcq();
+
+    enSysStatus   = CNAS_XSD_SCAN_CHAN_STATUS_SYNCED_NO_EXIST;
+
+    for (i = 0; i < CNAS_MIN(usSyncFailChanNum, CNAS_CAS_1X_MAX_FREQ_NUM); i++)
+    {
+        /* 将获取列表中指定频点的对应列表全部刷新为捕获过不存在 */
+        CNAS_XSD_UpdateSysFreqStatusByFreqChanInGeoSysRecordSrchList((CNAS_PRL_FREQENCY_CHANNEL_STRU *)&pstSyncFailChanList[i].stFreq,
+                                                                     enSysStatus,
+                                                                     pstGeoSysRecSrchList);
+    }
+
+    CNAS_XSD_LogAcqSystemList(pstGeoSysRecSrchList);
+
+    return;
+}
+
+
+VOS_VOID CNAS_XSD_UpdateSyncSuccFreqStatusInGeoSysRecordSrchList_SysAcq(
+    CNAS_CAS_1X_FREQENCY_CHANNEL_STRU                      *pstFreq,
+    CNAS_CAS_1X_SYSTEM_IDENTITY_STRU                       *pstSyncedSysId
+)
+{
+    CNAS_XSD_GEO_SYS_RECORD_SRCH_LIST_STRU                 *pstGeoSysRecSrchList = VOS_NULL_PTR;
+    CNAS_PRL_1X_SYSTEM_STRU                                 stAcqSuccSys;
+    CNAS_XSD_SCAN_CHAN_STATUS_ENUM_UINT8                    enSysStatus;
+    VOS_UINT16                                              i;
+
+    stAcqSuccSys.stFreq.enBandClass = pstFreq->usBandClass;
+    stAcqSuccSys.stFreq.usChannel   = pstFreq->usChannel;
+    stAcqSuccSys.usNid              = pstSyncedSysId->usNid;
+    stAcqSuccSys.usSid              = pstSyncedSysId->usSid;
+
+    pstGeoSysRecSrchList = CNAS_XSD_GetGeoSysRecSrchListAddr_SysAcq();
+    enSysStatus   = CNAS_XSD_SCAN_CHAN_STATUS_SYNCED_EXIST;
+
+    CNAS_XSD_UpdateSysFreqStatusBySysInGeoSysRecordSrchList(&stAcqSuccSys, enSysStatus, pstGeoSysRecSrchList);
+
+    /* 对于发给AS的相同频点的其他SID+NID,应该是捕获失败的,更新对应的捕获系统状态 */
+    enSysStatus   = CNAS_XSD_SCAN_CHAN_STATUS_SYNCED_NO_EXIST;
+    for (i = 0; i < pstGeoSysRecSrchList->usTotalNum; i++)
+    {
+        if ((stAcqSuccSys.stFreq.enBandClass == pstGeoSysRecSrchList->pstAcqSysInfo[i].stAcqSys.stFreq.enBandClass)
+         && (stAcqSuccSys.stFreq.usChannel   == pstGeoSysRecSrchList->pstAcqSysInfo[i].stAcqSys.stFreq.usChannel))
+        {
+            /* 捕获成功的系统不刷新状态 */
+            if (VOS_FALSE == CNAS_PRL_Is1xSysIdMatched(stAcqSuccSys.usSid,
+                                                       stAcqSuccSys.usNid,
+                                                       pstGeoSysRecSrchList->pstAcqSysInfo[i].stAcqSys.usSid,
+                                                       pstGeoSysRecSrchList->pstAcqSysInfo[i].stAcqSys.usNid))
+
+            {
+                pstGeoSysRecSrchList->pstAcqSysInfo[i].enSysStatus = enSysStatus;
+            }
+        }
+    }
+
+    CNAS_XSD_LogAcqSystemList(pstGeoSysRecSrchList);
+
+    return;
+}
+
+
+VOS_VOID CNAS_XSD_QuitFsmSysAcq_SysAcq(VOS_VOID)
+{
+    CNAS_XSD_SCAN_CHANNEL_LIST_STRU                        *pstCallRedialScanChanList = VOS_NULL_PTR;
+    CNAS_XSD_SCAN_CHANNEL_LIST_STRU                        *pstScanChanList           = VOS_NULL_PTR;
+    CNAS_XSD_SYS_ACQ_SCENE_ENUM_UINT32                      enCurAcqScene;
+
+    enCurAcqScene                       = CNAS_XSD_GetCurSysAcqScene_SysAcq();
+
+    /* 清除GEO搜索状态 */
+    CNAS_XSD_ClearGeoSrchListStatus();
+
+    /* 退出状态机时清空avoid list 索引*/
+    CNAS_XSD_InitAvoidSysListSrchIndex();
+
+    /* LOG GEO list搜索状态信息 */
+    CNAS_XSD_LogGeoListSrchStatus(CNAS_XSD_GetGeoSrchListInfoAddr());
+
+    /* 释放GEO系统记录搜索列表的内存 */
+    if (VOS_NULL_PTR != CNAS_XSD_GetGeoSysRecSrchListAddr_SysAcq()->pstAcqSysInfo)
+    {
+        PS_MEM_FREE(UEPS_PID_XSD, CNAS_XSD_GetGeoSysRecSrchListAddr_SysAcq()->pstAcqSysInfo);
+        CNAS_XSD_GetGeoSysRecSrchListAddr_SysAcq()->pstAcqSysInfo = VOS_NULL_PTR;
+    }
+
+    pstScanChanList           = CNAS_XSD_GetScanChanListAddr();
+    switch (enCurAcqScene)
+    {
+        case CNAS_XSD_SYS_ACQ_SCENE_NORMAL_CALL_REDIAL:
+            {
+                /* for normal call redial scene, update the call redial channle list by the current
+                   scan channle list */
+
+                pstCallRedialScanChanList = CNAS_XSD_GetCallRedialScanChanListAddr();
+
+                CNAS_XSD_UpdateScanChanList(pstCallRedialScanChanList, pstScanChanList);
+
+                CNAS_XSD_LogScanChannelList(ID_CNAS_XSD_MNTN_LOG_CALL_REDIAL_SCAN_CHAN_LIST_IND,
+                                            pstCallRedialScanChanList);
+            }
+            break;
+
+
+        case CNAS_XSD_SYS_ACQ_SCENE_EMERGENCY_CALL:
+            {
+                /* for emc call redial scene, update the call redial channle list by the current
+                   scan channle list */
+                pstCallRedialScanChanList = CNAS_XSD_GetEmcCallRedialScanChanListAddr();
+
+                CNAS_XSD_UpdateScanChanList(pstCallRedialScanChanList, pstScanChanList);
+
+                CNAS_XSD_LogScanChannelList(ID_CNAS_XSD_MNTN_LOG_EMC_CALL_REDIAL_SCAN_CHAN_LIST_IND,
+                                            pstCallRedialScanChanList);
+            }
+            break;
+
+        case CNAS_XSD_SYS_ACQ_SCENE_CALL_RELEASED_WITH_REDIR:
+            {
+                /* 根据scan list频点状态，刷新redirection频点状态 */
+                CNAS_XSD_UpdateRedirectionFreqStatusAccordingToScanChanList(pstScanChanList);
+            }
+            break;
+
+        default:
+            break;
+    }
+
+    CNAS_XSD_StopTimer(TI_CNAS_XSD_SYS_ACQ_NO_RF_PROTECT_TIMER);
+
+    CNAS_XSD_QuitFsmL2();
+}
+
+
+VOS_VOID CNAS_XSD_ProcFreqAvoidedInCasSyncCnf(
+    CAS_CNAS_1X_SYSTEM_SYNC_CNF_STRU   *pstSyncCnf
+)
+{
+    VOS_UINT8                           i;
+    CNAS_PRL_1X_SYSTEM_STRU             stSysInfo;
+    VOS_UINT32                          ulIsNegSys;
+
+    ulIsNegSys = VOS_FALSE;
+
+    if (CNAS_CAS_1X_RSLT_SUCCESS == pstSyncCnf->enSyncRslt)
+    {
+        /* 处理成功的频点 */
+        stSysInfo.stFreq.enBandClass = pstSyncCnf->stFreq.usBandClass;
+        stSysInfo.stFreq.usChannel   = pstSyncCnf->stFreq.usChannel;
+
+        stSysInfo.usNid  = pstSyncCnf->stSyncedSysId.usNid;
+        stSysInfo.usSid  = pstSyncCnf->stSyncedSysId.usSid;
+
+        ulIsNegSys = CNAS_XSD_IsCurSysNotSuitableSys(&stSysInfo, VOS_FALSE, 0);
+
+        /* 如果是negative系统，添加频点进avoid列表中 */
+        if (VOS_TRUE == ulIsNegSys)
+        {
+            if (VOS_TRUE == CNAS_XSD_IsAddInAvoidList(CNAS_XSD_AVOID_SID_NID_IS_REJ_BY_PRL))
+            {
+                CNAS_XSD_UpdataAvoidListInfo(&(stSysInfo.stFreq), CNAS_XSD_AVOID_SID_NID_IS_REJ_BY_PRL);
+            }
+        }
+    }
+
+
+    for (i = 0; i < pstSyncCnf->ulSyncFailFreqNum; i++)
+    {
+        if (CNAS_CAS_1X_SYS_SRCH_SYNC_FAIL_PROTO_MISMATCH != pstSyncCnf->astSyncRsltList[i].enFailReason)
+        {
+            continue;
+        }
+
+        /* 加入avoid列表前，检查slice是否已经到期 */
+        stSysInfo.stFreq.enBandClass = pstSyncCnf->astSyncRsltList[i].stFreq.usBandClass;
+        stSysInfo.stFreq.usChannel   = pstSyncCnf->astSyncRsltList[i].stFreq.usChannel;
+
+        if (VOS_TRUE == CNAS_XSD_IsAddSyncFailFreqInAvoidList(&(stSysInfo.stFreq),
+                                                              pstSyncCnf->astSyncRsltList[i].ulSlice,
+                                                              CNAS_XSD_AVOID_P_REV_MISMATCH))
+        {
+            CNAS_XSD_UpdataAvoidListInfo(&(stSysInfo.stFreq), CNAS_XSD_AVOID_P_REV_MISMATCH);
+        }
+
+    }
+
+
+    /*如果avoid列表中存在禁用标记，表示存在被禁用的频点，启动定时器 */
+    if (VOS_TRUE == CNAS_XSD_IsExistAvoidFlagInAvoidlist())
+    {
+        /* 如果avoid timer未启动，启动avoid timer定时器 */
+        if (CNAS_TIMER_STATUS_RUNNING != CNAS_GetSpecifiedTimerStatus(UEPS_PID_XSD,
+                                                                      TI_CNAS_XSD_SLICE_REVERSE_PROTECT_TIMER,
+                                                                      0))
+        {
+            CNAS_XSD_StartTimer(TI_CNAS_XSD_SLICE_REVERSE_PROTECT_TIMER,
+                                TI_CNAS_XSD_SLICE_REVERSE_PROTECT_TIMER_LEN);
+        }
+    }
+
+    CNAS_XSD_LogAvoidFreqList(CNAS_XSD_GetAvoidFreqListAddr());
+}
+
+
+VOS_VOID CNAS_XSD_PerformAbortProcedure_SysAcq(VOS_VOID)
+{
+    CNAS_XSD_StopTimer(TI_CNAS_XSD_POWEROFF_CAMP_ON_PROTECT_TIMER);
+
+    /* 将层二运行结果通知层一，层一收到此消息后进行层一状态的迁移 */
+    CNAS_XSD_SndSysAcqRslt(CNAS_XSD_SYSTEM_ACQUIRED_RESULT_ABORTED,
+                           CNAS_XSD_GetCurSysAcqScene_SysAcq(),
+                           CNAS_XSD_IsImmediateSysAcq_SysAcq(),
+                           CNAS_XSD_GetOocTotalTimerExpiredFlg_SysAcq());
+
+    /* 退出层二状态机 */
+    CNAS_XSD_QuitFsmSysAcq_SysAcq();
+
+    return;
+}
+
+
+VOS_UINT32 CNAS_XSD_RcvMsccCallRedialSystemAcquireNtf_SysAcq_WaitCasSysSyncCnf(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    MSCC_XSD_CALL_REDIAL_SYSTEM_ACQUIRE_NTF_STRU            *pstCallRedialNtfMsg = VOS_NULL_PTR;
+    CNAS_XSD_SYS_ACQ_SCENE_ENUM_UINT32                       enCurScene;
+
+    pstCallRedialNtfMsg = (MSCC_XSD_CALL_REDIAL_SYSTEM_ACQUIRE_NTF_STRU*)pstMsg;
+
+    enCurScene = CNAS_XSD_GetCurSysAcqScene_SysAcq();
+
+    /* 清除低优先级打断和之前打断的缓存消息 */
+    (VOS_VOID)CNAS_XSD_ClearCacheMsgByMsgName(VOS_PID_TIMER, TI_CNAS_XSD_EMC_CALLBACK_NETWORK_SRCH_PROTECT_TIMER);
+
+    (VOS_VOID)CNAS_XSD_ClearCacheMsgByMsgName(VOS_PID_TIMER, TI_CNAS_XSD_EMC_CALLBACK_MODE_PROTECT_TIMER);
+
+    (VOS_VOID)CNAS_XSD_ClearCacheMsgByMsgName(UEPS_PID_MSCC, ID_MSCC_XSD_END_EMC_CALLBACK_NTF);
+
+    (VOS_VOID)CNAS_XSD_ClearCacheMsgByMsgName(UEPS_PID_MSCC, ID_MSCC_XSD_MO_CALL_END_NTF);
+
+    (VOS_VOID)CNAS_XSD_ClearCacheMsgByMsgName(UEPS_PID_MSCC, ID_MSCC_XSD_CALL_REDIAL_SYSTEM_ACQUIRE_NTF);
+
+    /* 若当前存在更高优先级的打断的缓存消息，忽略本消息 */
+    if (0 != CNAS_XSD_GetCacheMsgNum())
+    {
+        return VOS_TRUE;
+    }
+
+    CNAS_XSD_SetAbortFlg_SysAcq(VOS_FALSE);
+
+    /* 排除一些需要丢弃消息的场景 */
+    /* 紧急呼处理 */
+    if (NAS_MSCC_PIF_CDMA_CALL_TYPE_1X_EMC_VOICE_CALL       == pstCallRedialNtfMsg->enCallType)
+    {
+        if (CNAS_XSD_SYS_ACQ_SCENE_EMERGENCY_CALL           == enCurScene)
+        {
+            /* 当前已经在紧急呼叫重拨搜网，消息丢弃，不处理 */
+            return VOS_TRUE;
+        }
+    }
+    /* 普通呼和数据呼处理 */
+    else
+    {
+        if ((CNAS_XSD_SYS_ACQ_SCENE_SYSTEM_LOST_WITH_LTE_OR_DO_CONN != enCurScene)
+        &&  ((NAS_MSCC_PIF_CDMA_CALL_CAUSE_NO_SERVICE                == pstCallRedialNtfMsg->enCause)
+          || (NAS_MSCC_PIF_CDMA_CALL_CAUSE_INTERNAL_NO_SERVICE       == pstCallRedialNtfMsg->enCause)))
+        {
+            /* 当前已经在呼叫重拨搜网，消息丢弃，不处理 */
+            return VOS_TRUE;
+        }
+
+
+        if ((CNAS_XSD_SYS_ACQ_SCENE_NORMAL_CALL_REDIAL      == enCurScene)
+        ||  (CNAS_XSD_SYS_ACQ_SCENE_SWITCH_ON               == enCurScene))
+        {
+            /* 当前已经在呼叫重拨搜网，消息丢弃，不处理 */
+            return VOS_TRUE;
+        }
+
+    }
+
+    CNAS_XSD_SetSystemAcquiredAbortedCause(NAS_ERR_LOG_1X_SEARCH_RSLT_ABORTED_BY_CALL_REDIAL);
+
+    /* 其他搜网场景,设置状态机打断标记 */
+    CNAS_XSD_SetAbortFlg_SysAcq(VOS_TRUE);
+
+    /* 缓存呼叫重拨指示消息 */
+    CNAS_XSD_SaveCacheMsg(ulEventType, pstMsg);
+
+    if (CNAS_XSD_SYS_ACQ_SCENE_SYSTEM_LOST_WITH_LTE_OR_DO_CONN != enCurScene)
+    {
+
+        /* 若当前不存在更高优先级的缓存消息，进行新的打断 */
+        CNAS_XSD_StopTimer(TI_CNAS_XSD_WAIT_CAS_SYSTEM_SYNC_CNF);
+
+        /* 给CAS发送ID_CNAS_CAS_1X_STOP_SYSTEM_SYNC_REQ消息停止同步 */
+        CNAS_XSD_SndCasStopSysSyncReq();
+
+        /* 迁移到 CNAS_XSD_SYS_ACQ_STA_WAIT_CAS_STOP_SYNC_CNF状态, 并启动保护定时器TI_CNAS_XSD_WAIT_CAS_STOP_SYSTEM_SYNC_CNF */
+        CNAS_XSD_SetCurrFsmState(CNAS_XSD_SYS_ACQ_STA_WAIT_CAS_STOP_SYNC_CNF);
+        CNAS_XSD_StartTimer(TI_CNAS_XSD_WAIT_CAS_STOP_SYSTEM_SYNC_CNF, TI_CNAS_XSD_WAIT_CAS_STOP_SYSTEM_SYNC_CNF_LEN);
+    }
+
+    return VOS_TRUE;
+}
+
+
+VOS_UINT32 CNAS_XSD_RcvMsccCallRedialSystemAcquireNtf_SysAcq_WaitCasOhmInd(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    MSCC_XSD_CALL_REDIAL_SYSTEM_ACQUIRE_NTF_STRU           *pstCallRedialNtfMsg = VOS_NULL_PTR;
+    CNAS_XSD_SYS_ACQ_SCENE_ENUM_UINT32                      enCurScene;
+
+    pstCallRedialNtfMsg = (MSCC_XSD_CALL_REDIAL_SYSTEM_ACQUIRE_NTF_STRU*)pstMsg;
+
+    enCurScene = CNAS_XSD_GetCurSysAcqScene_SysAcq();
+
+    /* 清除低优先级打断和自身的缓存消息 */
+    (VOS_VOID)CNAS_XSD_ClearCacheMsgByMsgName(VOS_PID_TIMER, TI_CNAS_XSD_EMC_CALLBACK_NETWORK_SRCH_PROTECT_TIMER);
+
+    (VOS_VOID)CNAS_XSD_ClearCacheMsgByMsgName(VOS_PID_TIMER, TI_CNAS_XSD_EMC_CALLBACK_MODE_PROTECT_TIMER);
+
+    (VOS_VOID)CNAS_XSD_ClearCacheMsgByMsgName(UEPS_PID_MSCC, ID_MSCC_XSD_END_EMC_CALLBACK_NTF);
+
+    (VOS_VOID)CNAS_XSD_ClearCacheMsgByMsgName(UEPS_PID_MSCC, ID_MSCC_XSD_MO_CALL_END_NTF);
+
+    (VOS_VOID)CNAS_XSD_ClearCacheMsgByMsgName(UEPS_PID_MSCC, ID_MSCC_XSD_CALL_REDIAL_SYSTEM_ACQUIRE_NTF);
+
+    /* 若当前存在更高优先级的打断的缓存消息，忽略本消息 */
+    if (0 != CNAS_XSD_GetCacheMsgNum())
+    {
+        return VOS_TRUE;
+    }
+
+    CNAS_XSD_SetAbortFlg_SysAcq(VOS_FALSE);
+
+    /* 排除一些需要丢弃消息的场景 */
+    /* 紧急呼处理 */
+    if (NAS_MSCC_PIF_CDMA_CALL_TYPE_1X_EMC_VOICE_CALL       == pstCallRedialNtfMsg->enCallType)
+    {
+        if (CNAS_XSD_SYS_ACQ_SCENE_EMERGENCY_CALL           == enCurScene)
+        {
+            /* 当前已经在紧急呼叫重拨搜网，消息丢弃，不处理 */
+            return VOS_TRUE;
+        }
+    }
+    /* 普通呼和数据呼处理 */
+    else
+    {
+        if ((CNAS_XSD_SYS_ACQ_SCENE_NORMAL_CALL_REDIAL      == enCurScene)
+        ||  (CNAS_XSD_SYS_ACQ_SCENE_SWITCH_ON               == enCurScene))
+        {
+            /* 当前已经在呼叫重拨搜网，消息丢弃，不处理 */
+            return VOS_TRUE;
+        }
+    }
+
+    CNAS_XSD_SetSystemAcquiredAbortedCause(NAS_ERR_LOG_1X_SEARCH_RSLT_ABORTED_BY_CALL_REDIAL);
+
+    /* 若当前不存在更高优先级的缓存消息，进行新的打断 */
+    CNAS_XSD_SetAbortFlg_SysAcq(VOS_TRUE);
+
+    /* 缓存呼叫重拨指示消息 */
+    CNAS_XSD_SaveCacheMsg(ulEventType, pstMsg);
+
+    return VOS_TRUE;
+}
+
+
+VOS_UINT32 CNAS_XSD_RcvMsccCallRedialSystemAcquireNtf_SysAcq_WaitCasStopSysSyncCnf(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    MSCC_XSD_CALL_REDIAL_SYSTEM_ACQUIRE_NTF_STRU           *pstCallRedialNtfMsg = VOS_NULL_PTR;
+    CNAS_XSD_SYS_ACQ_SCENE_ENUM_UINT32                      enCurScene;
+
+    pstCallRedialNtfMsg = (MSCC_XSD_CALL_REDIAL_SYSTEM_ACQUIRE_NTF_STRU*)pstMsg;
+
+    enCurScene = CNAS_XSD_GetCurSysAcqScene_SysAcq();
+
+    /* 清除低优先级打断和自身的缓存消息 */
+    (VOS_VOID)CNAS_XSD_ClearCacheMsgByMsgName(VOS_PID_TIMER, TI_CNAS_XSD_EMC_CALLBACK_NETWORK_SRCH_PROTECT_TIMER);
+
+    (VOS_VOID)CNAS_XSD_ClearCacheMsgByMsgName(VOS_PID_TIMER, TI_CNAS_XSD_EMC_CALLBACK_MODE_PROTECT_TIMER);
+
+    (VOS_VOID)CNAS_XSD_ClearCacheMsgByMsgName(UEPS_PID_MSCC, ID_MSCC_XSD_END_EMC_CALLBACK_NTF);
+
+    (VOS_VOID)CNAS_XSD_ClearCacheMsgByMsgName(UEPS_PID_MSCC, ID_MSCC_XSD_MO_CALL_END_NTF);
+
+    (VOS_VOID)CNAS_XSD_ClearCacheMsgByMsgName(UEPS_PID_MSCC, ID_MSCC_XSD_CALL_REDIAL_SYSTEM_ACQUIRE_NTF);
+
+    /* 若当前存在更高优先级的打断的缓存消息，忽略本消息 */
+    if (0 != CNAS_XSD_GetCacheMsgNum())
+    {
+        return VOS_TRUE;
+    }
+
+    CNAS_XSD_SetAbortFlg_SysAcq(VOS_FALSE);
+
+    /* 排除一些需要丢弃消息的场景 */
+    /* 紧急呼处理 */
+    if (NAS_MSCC_PIF_CDMA_CALL_TYPE_1X_EMC_VOICE_CALL       == pstCallRedialNtfMsg->enCallType)
+    {
+        if (CNAS_XSD_SYS_ACQ_SCENE_EMERGENCY_CALL           == enCurScene)
+        {
+            /* 当前已经在紧急呼叫重拨搜网，消息丢弃，不处理 */
+            return VOS_TRUE;
+        }
+    }
+    /* 普通呼和数据呼处理 */
+    else
+    {
+        if ((CNAS_XSD_SYS_ACQ_SCENE_NORMAL_CALL_REDIAL      == enCurScene)
+        ||  (CNAS_XSD_SYS_ACQ_SCENE_SWITCH_ON               == enCurScene))
+        {
+            /* 当前已经在呼叫重拨搜网，消息丢弃，不处理 */
+            return VOS_TRUE;
+        }
+    }
+
+    CNAS_XSD_SetSystemAcquiredAbortedCause(NAS_ERR_LOG_1X_SEARCH_RSLT_ABORTED_BY_CALL_REDIAL);
+
+    /* 若当前不存在更高优先级的缓存消息，进行新的打断 */
+    CNAS_XSD_SetAbortFlg_SysAcq(VOS_TRUE);
+
+    /* 缓存呼叫重拨指示消息 */
+    CNAS_XSD_SaveCacheMsg(ulEventType, pstMsg);
+
+    return VOS_TRUE;
+}
+
+
+
+
+VOS_VOID CNAS_XSD_PerformAllowedSystemSelectionAfterSyncSucc_SysAcq(
+    CAS_CNAS_1X_SYSTEM_SYNC_CNF_STRU   *pstSyncCnf
+)
+{
+    CNAS_PRL_FREQENCY_CHANNEL_STRU      astDstChan[CNAS_CAS_1X_MAX_FREQ_NUM];
+    VOS_UINT16                          usCurScanListIndex;
+    VOS_UINT16                          usDstChanNum;
+    CNAS_XSD_SCAN_CHANNEL_LIST_STRU    *pstScanList = VOS_NULL_PTR;
+    CNAS_PRL_1X_SYSTEM_STRU             stCurSysInfo;
+    VOS_UINT32                          ulIsNegSys;
+    VOS_UINT32                          ulHrpdConnExistFlag;
+    VOS_UINT32                          ulLteConnExistFlag;
+
+    ulLteConnExistFlag      = CNAS_XSD_GetLteConnExistFlag();
+    ulHrpdConnExistFlag     = CNAS_XSD_GetHrpdConnExistFlag();
+
+    stCurSysInfo.stFreq.enBandClass = pstSyncCnf->stFreq.usBandClass;
+    stCurSysInfo.stFreq.usChannel   = pstSyncCnf->stFreq.usChannel;
+    stCurSysInfo.usNid              = pstSyncCnf->stSyncedSysId.usNid;
+    stCurSysInfo.usSid              = pstSyncCnf->stSyncedSysId.usSid;
+
+    ulIsNegSys = CNAS_XSD_IsCurSysNotSuitableSys(&stCurSysInfo, VOS_FALSE, 0);
+
+    /* first check the system is allowed or not */
+    if (VOS_TRUE == ulIsNegSys)
+    {
+        usCurScanListIndex = CNAS_XSD_GetCurChannelScanIndex();
+        pstScanList        = CNAS_XSD_GetScanChanListAddr();
+
+        usDstChanNum       = 0;
+        NAS_MEM_SET_S(astDstChan, sizeof(astDstChan), 0x0, sizeof(CNAS_PRL_FREQENCY_CHANNEL_STRU) * CNAS_CAS_1X_MAX_FREQ_NUM);
+
+        CNAS_XSD_GetNextScanChanList_SysAcq(usCurScanListIndex, &usDstChanNum, astDstChan, pstScanList);
+
+        /* scan list已全部同步完 */
+        if (0 == usDstChanNum)
+        {
+            CNAS_XSD_ProcScanListSyncComplete_SysAcq();
+        }
+        /* scan list未全部同步完，继续发同步请求 */
+        else
+        {
+            /* 如果当前hrpd有数传或者srlte下lte有数传，退出当前搜网流程，重新进入数据连接态下的1x搜网 */
+            if ((VOS_TRUE                == ulHrpdConnExistFlag)
+             || ((CNAS_CCB_VERSION_SRLTE == CNAS_CCB_IsVersionSrlte())
+              && (VOS_TRUE               == ulLteConnExistFlag)))
+            {
+                CNAS_XSD_PerformAbortCurrSysAcqScene_SysAcq(VOS_FALSE);
+                return;
+            }
+            else
+            {
+                CNAS_XSD_ContinueSyncScanList_SysAcq(usDstChanNum, astDstChan);
+            }
+        }
+
+        return;
+    }
+
+    /* 发送ID_CNAS_CAS_1X_CAMP_SYNCED_CHANNEL_NTF */
+    CNAS_XSD_SndCas1xCampSyncedChannelNtf();
+
+    /* 迁移到 CNAS_XSD_SYS_ACQ_STA_WAIT_CAS_OHM_IND状态, 并启动保护定时器TI_CNAS_XSD_WAIT_CAS_OHM_IND */
+    CNAS_XSD_SetCurrFsmState(CNAS_XSD_SYS_ACQ_STA_WAIT_CAS_OHM_IND);
+
+    CNAS_XSD_StartTimer(TI_CNAS_XSD_WAIT_CAS_OHM_IND, TI_CNAS_XSD_WAIT_CAS_OHM_IND_LEN);
+}
+
+
+VOS_VOID CNAS_XSD_PerformAnySystemSelectionAfterSyncSucc_SysAcq(
+    CAS_CNAS_1X_SYSTEM_SYNC_CNF_STRU   *pstSyncCnf
+)
+{
+    CNAS_PRL_1X_SYSTEM_STRU            *pstEmcCallOrigSys   = VOS_NULL_PTR;
+    CNAS_XSD_SYS_ACQ_SCENE_ENUM_UINT32  enCurSysAcqScene;
+    CNAS_PRL_1X_SYSTEM_STRU             stCurSysInfo;
+
+    CNAS_CCB_CARD_STATUS_ENUM_UINT8     enCardStatus;
+
+    enCurSysAcqScene    = CNAS_XSD_GetCurSysAcqScene_SysAcq();
+    NAS_MEM_SET_S(&stCurSysInfo, sizeof(stCurSysInfo), 0x00, sizeof(CNAS_PRL_1X_SYSTEM_STRU));
+
+    if (CNAS_XSD_SYS_ACQ_SCENE_EMC_CALLBACK_SYSTEM_LOST == enCurSysAcqScene)
+    {
+        pstEmcCallOrigSys   = CNAS_XSD_GetEmcCallOriginalSys();
+
+        if ((pstEmcCallOrigSys->usSid != pstSyncCnf->stSyncedSysId.usSid)
+         || (pstEmcCallOrigSys->usNid != pstSyncCnf->stSyncedSysId.usNid))
+        {
+            CNAS_INFO_LOG4(UEPS_PID_XSD,
+                           "CNAS_XSD_PerformAnySystemSelectionAfterSyncSucc_SysAcq:CallBack System Lost Srch Not Match(Req/Rsp):",
+                           pstEmcCallOrigSys->usSid,
+                           pstEmcCallOrigSys->usNid,
+                           pstSyncCnf->stSyncedSysId.usSid,
+                           pstSyncCnf->stSyncedSysId.usNid);
+
+            /* 同步成功的系统不符合要求，继续Scan List同步 */
+            CNAS_XSD_ContinueSysSync_SysAcq();
+
+            return;
+        }
+    }
+
+    /* 非紧急呼和紧急呼CallBack场景,若系统为Negative系统，继续同步ScanList剩余频点 */
+    enCardStatus = CNAS_CCB_GetCsimCardStatus();
+
+    if ((VOS_FALSE == CNAS_XSD_IsEmergencySysAcq_SysAcq(enCurSysAcqScene))
+     && (CNAS_CCB_CARD_STATUS_ABSENT != enCardStatus))
+    {
+        stCurSysInfo.stFreq.enBandClass = pstSyncCnf->stFreq.usBandClass;
+        stCurSysInfo.stFreq.usChannel   = pstSyncCnf->stFreq.usChannel;
+        stCurSysInfo.usNid              = pstSyncCnf->stSyncedSysId.usNid;
+        stCurSysInfo.usSid              = pstSyncCnf->stSyncedSysId.usSid;
+
+        if (VOS_TRUE == CNAS_XSD_IsCurSysNotSuitableSys(&stCurSysInfo,
+                                                         VOS_FALSE,
+                                                         0))
+        {
+            CNAS_XSD_ContinueSysSync_SysAcq();
+
+            return;
+        }
+    }
+
+    /* 发送ID_CNAS_CAS_1X_CAMP_SYNCED_CHANNEL_NTF */
+    CNAS_XSD_SndCas1xCampSyncedChannelNtf();
+
+    /* 迁移到 CNAS_XSD_SYS_ACQ_STA_WAIT_CAS_OHM_IND状态, 并启动保护定时器TI_CNAS_XSD_WAIT_CAS_OHM_IND */
+    CNAS_XSD_SetCurrFsmState(CNAS_XSD_SYS_ACQ_STA_WAIT_CAS_OHM_IND);
+
+    CNAS_XSD_StartTimer(TI_CNAS_XSD_WAIT_CAS_OHM_IND, TI_CNAS_XSD_WAIT_CAS_OHM_IND_LEN);
+
+    return;
+}
+
+
+VOS_VOID CNAS_XSD_PerformPreferedSystemSelectionAfterSyncSucc_SysAcq(
+    CAS_CNAS_1X_SYSTEM_SYNC_CNF_STRU   *pstSyncCnf
+)
+{
+    CNAS_PRL_MATCHED_GEO_LIST_INFO_STRU stGeoListInfo;
+    CNAS_PRL_FREQENCY_CHANNEL_STRU      astDstChan[CNAS_CAS_1X_MAX_FREQ_NUM];
+    VOS_UINT16                          usCurScanListIndex;
+    VOS_UINT16                          usDstChanNum;
+    CNAS_XSD_SCAN_CHANNEL_LIST_STRU    *pstScanList = VOS_NULL_PTR;
+    VOS_UINT32                          ulIsNegSys;
+    CNAS_PRL_1X_SYSTEM_STRU             stCurSysInfo;
+    VOS_UINT32                          ulHrpdConnExistFlag;
+    VOS_UINT32                          ulLteConnExistFlag;
+
+    ulLteConnExistFlag              = CNAS_XSD_GetLteConnExistFlag();
+    ulHrpdConnExistFlag             = CNAS_XSD_GetHrpdConnExistFlag();
+
+    stCurSysInfo.stFreq.enBandClass = pstSyncCnf->stFreq.usBandClass;
+    stCurSysInfo.stFreq.usChannel   = pstSyncCnf->stFreq.usChannel;
+    stCurSysInfo.usNid              = pstSyncCnf->stSyncedSysId.usNid;
+    stCurSysInfo.usSid              = pstSyncCnf->stSyncedSysId.usSid;
+
+
+    ulIsNegSys = VOS_FALSE;
+
+    NAS_MEM_SET_S(&stGeoListInfo, sizeof(stGeoListInfo), 0, sizeof(CNAS_PRL_MATCHED_GEO_LIST_INFO_STRU));
+
+    CNAS_PRL_Get1xSysGeoList(&stCurSysInfo, &stGeoListInfo);
+
+    ulIsNegSys = CNAS_XSD_IsCurSysNotSuitableSys(&stCurSysInfo, VOS_FALSE, 0);
+
+    /* negative system or not in PRL, could not select,should continue sync */
+    if ((VOS_TRUE == ulIsNegSys)
+     || (0        == stGeoListInfo.ucGeoNum))
+    {
+        usCurScanListIndex = CNAS_XSD_GetCurChannelScanIndex();
+        pstScanList        = CNAS_XSD_GetScanChanListAddr();
+
+        usDstChanNum       = 0;
+        NAS_MEM_SET_S(astDstChan, sizeof(astDstChan), 0x0, sizeof(CNAS_PRL_FREQENCY_CHANNEL_STRU) * CNAS_CAS_1X_MAX_FREQ_NUM);
+        CNAS_XSD_GetNextScanChanList_SysAcq(usCurScanListIndex,
+                                            &usDstChanNum,
+                                            astDstChan,
+                                            pstScanList);
+
+        /* scan list已全部同步完 */
+        if (0 == usDstChanNum)
+        {
+            CNAS_XSD_ProcScanListSyncComplete_SysAcq();
+        }
+        /* scan list未全部同步完，继续发同步请求 */
+        else
+        {
+            /* 如果当前hrpd有数传或者srlte下lte有数传，退出当前搜网流程，重新进入数据连接态下的1x搜网 */
+            if ((VOS_TRUE                == ulHrpdConnExistFlag)
+             || ((CNAS_CCB_VERSION_SRLTE == CNAS_CCB_IsVersionSrlte())
+              && (VOS_TRUE               == ulLteConnExistFlag)))
+            {
+                CNAS_XSD_PerformAbortCurrSysAcqScene_SysAcq(VOS_FALSE);
+                return;
+            }
+            else
+            {
+                CNAS_XSD_ContinueSyncScanList_SysAcq(usDstChanNum, astDstChan);
+            }
+        }
+
+        return;
+    }
+
+    /* 发送ID_CNAS_CAS_1X_CAMP_SYNCED_CHANNEL_NTF */
+    CNAS_XSD_SndCas1xCampSyncedChannelNtf();
+
+    /* 迁移到 CNAS_XSD_SYS_ACQ_STA_WAIT_CAS_OHM_IND状态, 并启动保护定时器TI_CNAS_XSD_WAIT_CAS_OHM_IND */
+    CNAS_XSD_SetCurrFsmState(CNAS_XSD_SYS_ACQ_STA_WAIT_CAS_OHM_IND);
+
+    CNAS_XSD_StartTimer(TI_CNAS_XSD_WAIT_CAS_OHM_IND, TI_CNAS_XSD_WAIT_CAS_OHM_IND_LEN);
+}
+
+
+VOS_VOID CNAS_XSD_PerformSpecificSystemSelectionAfterSyncSucc_SysAcq(
+    CAS_CNAS_1X_SYSTEM_SYNC_CNF_STRU   *pstSyncCnf
+)
+{
+    CNAS_XSD_CFREQ_LOCK_SET_PARA_STRU  *pstFreqLockPara;
+    VOS_UINT32                          ulRlst;
+
+    /* 获取锁频信息 */
+    pstFreqLockPara = CNAS_XSD_GetFreqLockAddr();
+
+    ulRlst = CNAS_PRL_Is1xSysIdMatched(pstSyncCnf->stSyncedSysId.usSid,
+                                       pstSyncCnf->stSyncedSysId.usNid,
+                                       pstFreqLockPara->usSid,
+                                       pstFreqLockPara->usNid);
+
+    if (VOS_TRUE == ulRlst)
+    {
+        CNAS_XSD_SndCas1xCampSyncedChannelNtf();
+
+        /* 迁移到 CNAS_XSD_SYS_ACQ_STA_WAIT_CAS_OHM_IND状态, 并启动保护定时器TI_CNAS_XSD_WAIT_CAS_OHM_IND */
+        CNAS_XSD_SetCurrFsmState(CNAS_XSD_SYS_ACQ_STA_WAIT_CAS_OHM_IND);
+
+        CNAS_XSD_StartTimer(TI_CNAS_XSD_WAIT_CAS_OHM_IND, TI_CNAS_XSD_WAIT_CAS_OHM_IND_LEN);
+    }
+    else
+    {
+        CNAS_XSD_ProcScanListSyncComplete_SysAcq();
+    }
+
+    return;
+}
+
+
+VOS_UINT32 CNAS_XSD_ProcCasSystemDetermineIndWithProtoMisReason_SysAcq(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    CAS_CNAS_1X_SYSTEM_DETERMIN_IND_STRU                   *pstSysDeterminInd = VOS_NULL_PTR;
+
+    pstSysDeterminInd   = (CAS_CNAS_1X_SYSTEM_DETERMIN_IND_STRU *)pstMsg;
+
+    CNAS_XSD_ProcRequiredAvoidedFreqByAvoidReason(CNAS_XSD_AVOID_P_REV_MISMATCH,
+                                                  (CNAS_PRL_FREQENCY_CHANNEL_STRU *)(&(pstSysDeterminInd->stCurChannelInfo)));
+
+    CNAS_XSD_SetRedirectionFlag(VOS_FALSE);
+
+    /* continue sync */
+    CNAS_XSD_ContinueSysSync_SysAcq();
+
+    return VOS_TRUE;
+}
+
+
+
+VOS_VOID CNAS_XSD_GetNextScanChanList_SysAcq(
+    VOS_UINT16                          usCurScanChanIndex,
+    VOS_UINT16                         *pusDstChanNum,
+    CNAS_PRL_FREQENCY_CHANNEL_STRU     *pstDstChan,
+    CNAS_XSD_SCAN_CHANNEL_LIST_STRU    *pstScanChanList
+)
+{
+    CNAS_XSD_SYS_ACQ_SCENE_ENUM_UINT32  enCurAcqScene;
+    VOS_UINT32                          ulIsAvoidListEnable;
+
+    enCurAcqScene       = CNAS_XSD_GetCurSysAcqScene_SysAcq();
+    ulIsAvoidListEnable = VOS_TRUE;
+
+    if ((CNAS_XSD_SYS_ACQ_SCENE_EMC_CALLBACK_SYSTEM_LOST == enCurAcqScene)
+     || (CNAS_XSD_SYS_ACQ_SCENE_EMERGENCY_CALL           == enCurAcqScene)
+     || (CNAS_XSD_SYS_ACQ_SCENE_EMC_CALL_RELEASED        == enCurAcqScene))
+    {
+        ulIsAvoidListEnable = VOS_FALSE;
+    }
+
+    CNAS_XSD_GetNextScanChanList(usCurScanChanIndex,
+                                 pusDstChanNum,
+                                 pstDstChan,
+                                 pstScanChanList,
+                                 ulIsAvoidListEnable);
+}
+
+
+VOS_UINT32 CNAS_XSD_RcvMsccSrvAcqReq_SysAcq_WaitCasSysSyncCnf(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    /* 非紧急呼使用当前的搜网结果 */
+    if (NAS_MSCC_PIF_SRV_TYPE_CS_MO_EMERGENCY_CALL != ((MSCC_XSD_SRV_ACQ_REQ_STRU *)pstMsg)->enSrvType)
+    {
+        return VOS_TRUE;
+    }
+
+    /* 清除低优先级打断的缓存消息 */
+    (VOS_VOID)CNAS_XSD_ClearCacheMsgByMsgName(VOS_PID_TIMER, TI_CNAS_XSD_EMC_CALLBACK_NETWORK_SRCH_PROTECT_TIMER);
+
+    (VOS_VOID)CNAS_XSD_ClearCacheMsgByMsgName(VOS_PID_TIMER, TI_CNAS_XSD_EMC_CALLBACK_MODE_PROTECT_TIMER);
+
+    (VOS_VOID)CNAS_XSD_ClearCacheMsgByMsgName(UEPS_PID_MSCC, ID_MSCC_XSD_END_EMC_CALLBACK_NTF);
+
+    (VOS_VOID)CNAS_XSD_ClearCacheMsgByMsgName(UEPS_PID_MSCC, ID_MSCC_XSD_MO_CALL_END_NTF);
+
+    (VOS_VOID)CNAS_XSD_ClearCacheMsgByMsgName(UEPS_PID_MSCC, ID_MSCC_XSD_SRV_ACQ_REQ);
+
+    /* 若当前存在更高优先级的打断的缓存消息，忽略本消息 */
+    if (0 != CNAS_XSD_GetCacheMsgNum())
+    {
+        return VOS_TRUE;
+    }
+
+    /* 如果业务类型是紧急呼，构建紧急呼搜网列表 */
+    CNAS_XSD_BuildEmcCallRedialScanChanList();
+
+    /* 若当前不存在更高优先级的缓存消息，进行新的打断 */
+    /* 停止同步定时器 */
+    CNAS_XSD_StopTimer(TI_CNAS_XSD_WAIT_CAS_SYSTEM_SYNC_CNF);
+
+    /* 发送停止同步请求 */
+    CNAS_XSD_SndCasStopSysSyncReq();
+
+    /* 缓存业务触发搜网请求 */
+    CNAS_XSD_SaveCacheMsg(ulEventType, pstMsg);
+
+    /* 缓存中处理，清空业务触发搜网标记 */
+    CNAS_XSD_SetSrvAcqFlg(VOS_FALSE);
+
+    CNAS_XSD_SetSystemAcquiredAbortedCause(NAS_ERR_LOG_1X_SEARCH_RSLT_ABORTED_BY_SRV_ACQ);
+
+    /* 设置状态机打断标记 */
+    CNAS_XSD_SetAbortFlg_SysAcq(VOS_TRUE);
+
+    /* 迁状态设置保护定时器 */
+    CNAS_XSD_SetCurrFsmState(CNAS_XSD_SYS_ACQ_STA_WAIT_CAS_STOP_SYNC_CNF);
+    CNAS_XSD_StartTimer(TI_CNAS_XSD_WAIT_CAS_STOP_SYSTEM_SYNC_CNF, TI_CNAS_XSD_WAIT_CAS_STOP_SYSTEM_SYNC_CNF_LEN);
+
+    return VOS_TRUE;
+}
+
+
+VOS_UINT32 CNAS_XSD_RcvMsccCallEndNtf_SysAcq_WaitCasSysSyncCnf(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    CNAS_XSD_SYS_ACQ_SCENE_ENUM_UINT32  enAcqScene;
+
+    enAcqScene                          = CNAS_XSD_GetCurSysAcqScene_SysAcq();
+
+    /* 非紧急呼搜网不打断 */
+    if ((VOS_FALSE == CNAS_XSD_IsEmcSDSysAcq_SysAcq(enAcqScene))
+     && (CNAS_XSD_SYS_ACQ_SCENE_EMERGENCY_CALL != enAcqScene))
+    {
+        return VOS_TRUE;
+    }
+
+    if (VOS_TRUE == CNAS_XSD_GetAbortFlg_SysAcq())
+    {
+        return VOS_TRUE;
+    }
+
+    /* 紧急呼流程中，打断处理 */
+    /* 停止同步定时器 */
+    CNAS_XSD_StopTimer(TI_CNAS_XSD_WAIT_CAS_SYSTEM_SYNC_CNF);
+
+    /* 发送停止同步请求 */
+    CNAS_XSD_SndCasStopSysSyncReq();
+
+    /* 缓存业务触发搜网请求 */
+    CNAS_XSD_SaveCacheMsg(ulEventType, pstMsg);
+
+    CNAS_XSD_SetSystemAcquiredAbortedCause(NAS_ERR_LOG_1X_SEARCH_RSLT_ABORTED_BY_MO_CALL_END);
+
+    /* 设置状态机打断标记 */
+    CNAS_XSD_SetAbortFlg_SysAcq(VOS_TRUE);
+
+    /* 迁状态设置保护定时器 */
+    CNAS_XSD_SetCurrFsmState(CNAS_XSD_SYS_ACQ_STA_WAIT_CAS_STOP_SYNC_CNF);
+    CNAS_XSD_StartTimer(TI_CNAS_XSD_WAIT_CAS_STOP_SYSTEM_SYNC_CNF, TI_CNAS_XSD_WAIT_CAS_STOP_SYSTEM_SYNC_CNF_LEN);
+
+    return VOS_TRUE;
+}
+
+
+VOS_UINT32 CNAS_XSD_RcvTiEmcCallBackNetWorkSrchTimerExpired_SysAcq_WaitCasSysSyncCnf(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    if (VOS_TRUE == CNAS_XSD_GetAbortFlg_SysAcq())
+    {
+        return VOS_TRUE;
+    }
+
+    /* 停止同步定时器 */
+    CNAS_XSD_StopTimer(TI_CNAS_XSD_WAIT_CAS_SYSTEM_SYNC_CNF);
+
+    /* 发送停止同步请求 */
+    CNAS_XSD_SndCasStopSysSyncReq();
+
+    /* 缓存业务触发搜网请求 */
+    CNAS_XSD_SaveCacheMsg(ulEventType, pstMsg);
+
+    /* 设置状态机打断标记 */
+    CNAS_XSD_SetAbortFlg_SysAcq(VOS_TRUE);
+
+    CNAS_XSD_SetSystemAcquiredAbortedCause(NAS_ERR_LOG_1X_SEARCH_RSLT_ABORTED_BY_CALLBACK_SRCH_TIMEOUT);
+
+    /* 迁状态设置保护定时器 */
+    CNAS_XSD_SetCurrFsmState(CNAS_XSD_SYS_ACQ_STA_WAIT_CAS_STOP_SYNC_CNF);
+    CNAS_XSD_StartTimer(TI_CNAS_XSD_WAIT_CAS_STOP_SYSTEM_SYNC_CNF, TI_CNAS_XSD_WAIT_CAS_STOP_SYSTEM_SYNC_CNF_LEN);
+
+    return VOS_TRUE;
+}
+
+
+VOS_UINT32 CNAS_XSD_RcvTiEmcCallBackModeProtectTimerExpired_SysAcq_WaitCasSysSyncCnf(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    if (VOS_TRUE == CNAS_XSD_GetAbortFlg_SysAcq())
+    {
+        return VOS_TRUE;
+    }
+
+    /* 停止同步定时器 */
+    CNAS_XSD_StopTimer(TI_CNAS_XSD_WAIT_CAS_SYSTEM_SYNC_CNF);
+
+    /* 发送停止同步请求 */
+    CNAS_XSD_SndCasStopSysSyncReq();
+
+    /* 缓存业务触发搜网请求 */
+    CNAS_XSD_SaveCacheMsg(ulEventType, pstMsg);
+
+    CNAS_XSD_SetSystemAcquiredAbortedCause(NAS_ERR_LOG_1X_SEARCH_RSLT_ABORTED_BY_CALLBACK_MODE_TIMEOUT);
+
+    /* 设置状态机打断标记 */
+    CNAS_XSD_SetAbortFlg_SysAcq(VOS_TRUE);
+
+    /* 迁状态设置保护定时器 */
+    CNAS_XSD_SetCurrFsmState(CNAS_XSD_SYS_ACQ_STA_WAIT_CAS_STOP_SYNC_CNF);
+    CNAS_XSD_StartTimer(TI_CNAS_XSD_WAIT_CAS_STOP_SYSTEM_SYNC_CNF, TI_CNAS_XSD_WAIT_CAS_STOP_SYSTEM_SYNC_CNF_LEN);
+
+    return VOS_TRUE;
+}
+
+
+VOS_UINT32 CNAS_XSD_RcvMsccEndEmcCallBackReq_SysAcq_WaitCasSysSyncCnf(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    if (VOS_TRUE == CNAS_XSD_GetAbortFlg_SysAcq())
+    {
+        return VOS_TRUE;
+    }
+
+    /* 停止同步定时器 */
+    CNAS_XSD_StopTimer(TI_CNAS_XSD_WAIT_CAS_SYSTEM_SYNC_CNF);
+
+    /* 发送停止同步请求 */
+    CNAS_XSD_SndCasStopSysSyncReq();
+
+    /* 缓存业务触发搜网请求 */
+    CNAS_XSD_SaveCacheMsg(ulEventType, pstMsg);
+
+    /* 设置状态机打断标记 */
+    CNAS_XSD_SetSystemAcquiredAbortedCause(NAS_ERR_LOG_1X_SEARCH_RSLT_ABORTED_BY_END_EMC_CALLBACK);
+
+    CNAS_XSD_SetAbortFlg_SysAcq(VOS_TRUE);
+
+    /* 迁状态设置保护定时器 */
+    CNAS_XSD_SetCurrFsmState(CNAS_XSD_SYS_ACQ_STA_WAIT_CAS_STOP_SYNC_CNF);
+    CNAS_XSD_StartTimer(TI_CNAS_XSD_WAIT_CAS_STOP_SYSTEM_SYNC_CNF, TI_CNAS_XSD_WAIT_CAS_STOP_SYSTEM_SYNC_CNF_LEN);
+
+    return VOS_TRUE;
+}
+
+
+
+VOS_UINT32 CNAS_XSD_RcvMsccSrvAcqReq_SysAcq_WaitCasStopSysSyncCnf(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    /* 非紧急呼使用当前的搜网结果 */
+    if (NAS_MSCC_PIF_SRV_TYPE_CS_MO_EMERGENCY_CALL != ((MSCC_XSD_SRV_ACQ_REQ_STRU *)pstMsg)->enSrvType)
+    {
+        return VOS_TRUE;
+    }
+
+    /* 清除低优先级打断的缓存消息 */
+    (VOS_VOID)CNAS_XSD_ClearCacheMsgByMsgName(VOS_PID_TIMER, TI_CNAS_XSD_EMC_CALLBACK_NETWORK_SRCH_PROTECT_TIMER);
+
+    (VOS_VOID)CNAS_XSD_ClearCacheMsgByMsgName(VOS_PID_TIMER, TI_CNAS_XSD_EMC_CALLBACK_MODE_PROTECT_TIMER);
+
+    (VOS_VOID)CNAS_XSD_ClearCacheMsgByMsgName(UEPS_PID_MSCC, ID_MSCC_XSD_END_EMC_CALLBACK_NTF);
+
+    (VOS_VOID)CNAS_XSD_ClearCacheMsgByMsgName(UEPS_PID_MSCC, ID_MSCC_XSD_MO_CALL_END_NTF);
+
+    (VOS_VOID)CNAS_XSD_ClearCacheMsgByMsgName(UEPS_PID_MSCC, ID_MSCC_XSD_SRV_ACQ_REQ);
+
+    /* 若当前存在更高优先级的打断的缓存消息，忽略本消息 */
+    if (0 != CNAS_XSD_GetCacheMsgNum())
+    {
+        return VOS_TRUE;
+    }
+
+    /* 如果业务类型是紧急呼，构建紧急呼搜网列表 */
+    CNAS_XSD_BuildEmcCallRedialScanChanList();
+
+    /* 若当前不存在更高优先级的缓存消息，进行新的打断 */
+    /* 缓存业务触发搜网请求 */
+    CNAS_XSD_SaveCacheMsg(ulEventType, pstMsg);
+
+    /* 缓存中处理消息，清空业务触发搜网标记 */
+    CNAS_XSD_SetSrvAcqFlg(VOS_FALSE);
+
+    CNAS_XSD_SetSystemAcquiredAbortedCause(NAS_ERR_LOG_1X_SEARCH_RSLT_ABORTED_BY_SRV_ACQ);
+
+    /* 设置状态机打断标记 */
+    CNAS_XSD_SetAbortFlg_SysAcq(VOS_TRUE);
+
+    return VOS_TRUE;
+}
+
+
+VOS_UINT32 CNAS_XSD_RcvMsccCallEndNtf_SysAcq_WaitCasStopSysSyncCnf(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    CNAS_XSD_SYS_ACQ_SCENE_ENUM_UINT32  enAcqScene;
+
+    enAcqScene                          = CNAS_XSD_GetCurSysAcqScene_SysAcq();
+
+    /* 非紧急呼搜网不打断 */
+    if ((VOS_FALSE == CNAS_XSD_IsEmcSDSysAcq_SysAcq(enAcqScene))
+     && (CNAS_XSD_SYS_ACQ_SCENE_EMERGENCY_CALL != enAcqScene))
+    {
+        return VOS_TRUE;
+    }
+
+    if (VOS_TRUE == CNAS_XSD_GetAbortFlg_SysAcq())
+    {
+        return VOS_TRUE;
+    }
+
+    /* 紧急呼流程中，打断处理 */
+    /* 缓存业务触发搜网请求 */
+    CNAS_XSD_SaveCacheMsg(ulEventType, pstMsg);
+
+    CNAS_XSD_SetSystemAcquiredAbortedCause(NAS_ERR_LOG_1X_SEARCH_RSLT_ABORTED_BY_MO_CALL_END);
+
+    /* 设置状态机打断标记 */
+    CNAS_XSD_SetAbortFlg_SysAcq(VOS_TRUE);
+
+    return VOS_TRUE;
+}
+
+
+VOS_UINT32 CNAS_XSD_RcvTiEmcCallBackNetWorkSrchTimerExpired_SysAcq_WaitCasStopSysSyncCnf(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    if (VOS_TRUE == CNAS_XSD_GetAbortFlg_SysAcq())
+    {
+        return VOS_TRUE;
+    }
+
+    /* 缓存业务触发搜网请求 */
+    CNAS_XSD_SaveCacheMsg(ulEventType, pstMsg);
+
+    CNAS_XSD_SetSystemAcquiredAbortedCause(NAS_ERR_LOG_1X_SEARCH_RSLT_ABORTED_BY_CALLBACK_SRCH_TIMEOUT);
+
+    /* 设置状态机打断标记 */
+    CNAS_XSD_SetAbortFlg_SysAcq(VOS_TRUE);
+
+    return VOS_TRUE;
+}
+
+
+VOS_UINT32 CNAS_XSD_RcvTiEmcCallBackModeProtectTimerExpired_SysAcq_WaitCasStopSysSyncCnf(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    if (VOS_TRUE == CNAS_XSD_GetAbortFlg_SysAcq())
+    {
+        return VOS_TRUE;
+    }
+
+    /* 缓存业务触发搜网请求 */
+    CNAS_XSD_SaveCacheMsg(ulEventType, pstMsg);
+
+    CNAS_XSD_SetSystemAcquiredAbortedCause(NAS_ERR_LOG_1X_SEARCH_RSLT_ABORTED_BY_CALLBACK_MODE_TIMEOUT);
+
+    /* 设置状态机打断标记 */
+    CNAS_XSD_SetAbortFlg_SysAcq(VOS_TRUE);
+
+    return VOS_TRUE;
+}
+
+
+VOS_UINT32 CNAS_XSD_RcvMsccEndEmcCallBackReq_SysAcq_WaitCasStopSysSyncCnf(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    if (VOS_TRUE == CNAS_XSD_GetAbortFlg_SysAcq())
+    {
+        return VOS_TRUE;
+    }
+
+    /* 缓存业务触发搜网请求 */
+    CNAS_XSD_SaveCacheMsg(ulEventType, pstMsg);
+
+    CNAS_XSD_SetSystemAcquiredAbortedCause(NAS_ERR_LOG_1X_SEARCH_RSLT_ABORTED_BY_END_EMC_CALLBACK);
+
+    /* 设置状态机打断标记 */
+    CNAS_XSD_SetAbortFlg_SysAcq(VOS_TRUE);
+
+    return VOS_TRUE;
+}
+
+
+
+VOS_UINT32 CNAS_XSD_RcvMsccSrvAcqReq_SysAcq_WaitCasOhmInd(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    /* 非紧急呼使用当前的搜网结果 */
+    if (NAS_MSCC_PIF_SRV_TYPE_CS_MO_EMERGENCY_CALL != ((MSCC_XSD_SRV_ACQ_REQ_STRU *)pstMsg)->enSrvType)
+    {
+        return VOS_TRUE;
+    }
+
+    /* 清除低优先级打断的缓存消息 */
+    (VOS_VOID)CNAS_XSD_ClearCacheMsgByMsgName(VOS_PID_TIMER, TI_CNAS_XSD_EMC_CALLBACK_NETWORK_SRCH_PROTECT_TIMER);
+
+    (VOS_VOID)CNAS_XSD_ClearCacheMsgByMsgName(VOS_PID_TIMER, TI_CNAS_XSD_EMC_CALLBACK_MODE_PROTECT_TIMER);
+
+    (VOS_VOID)CNAS_XSD_ClearCacheMsgByMsgName(UEPS_PID_MSCC, ID_MSCC_XSD_END_EMC_CALLBACK_NTF);
+
+    (VOS_VOID)CNAS_XSD_ClearCacheMsgByMsgName(UEPS_PID_MSCC, ID_MSCC_XSD_MO_CALL_END_NTF);
+
+    (VOS_VOID)CNAS_XSD_ClearCacheMsgByMsgName(UEPS_PID_MSCC, ID_MSCC_XSD_SRV_ACQ_REQ);
+
+    /* 若当前存在更高优先级的打断的缓存消息，忽略本消息 */
+    if (0 != CNAS_XSD_GetCacheMsgNum())
+    {
+        return VOS_TRUE;
+    }
+
+    /* 如果业务类型是紧急呼，构建紧急呼搜网列表 */
+    CNAS_XSD_BuildEmcCallRedialScanChanList();
+
+    /* 若当前不存在更高优先级的缓存消息，进行新的打断 */
+    CNAS_XSD_SaveCacheMsg(ulEventType, pstMsg);
+
+    /* 缓存中处理消息，清空业务触发搜网标记 */
+    CNAS_XSD_SetSrvAcqFlg(VOS_FALSE);
+
+    CNAS_XSD_SetSystemAcquiredAbortedCause(NAS_ERR_LOG_1X_SEARCH_RSLT_ABORTED_BY_SRV_ACQ);
+
+    /* 设置状态机打断标记 */
+    CNAS_XSD_SetAbortFlg_SysAcq(VOS_TRUE);
+
+    return VOS_TRUE;
+}
+
+
+VOS_UINT32 CNAS_XSD_RcvMsccCallEndNtf_SysAcq_WaitCasOhmInd(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    CNAS_PRL_1X_SYSTEM_ID_STRU         *pstLastSyncedSys       = VOS_NULL_PTR;
+    CNAS_PRL_1X_SYSTEM_STRU             st1xSysInfo;
+    CNAS_XSD_SYS_ACQ_SCENE_ENUM_UINT32  enAcqScene;
+
+    enAcqScene                          = CNAS_XSD_GetCurSysAcqScene_SysAcq();
+    NAS_MEM_SET_S(&st1xSysInfo, sizeof(st1xSysInfo), 0x00, sizeof(CNAS_PRL_1X_SYSTEM_STRU));
+    pstLastSyncedSys                    = CNAS_XSD_GetLastSyncedSys();
+
+    /* 非紧急呼搜网不打断 */
+    if ((VOS_FALSE == CNAS_XSD_IsEmcSDSysAcq_SysAcq(enAcqScene))
+     && (CNAS_XSD_SYS_ACQ_SCENE_EMERGENCY_CALL != enAcqScene))
+
+    {
+        return VOS_TRUE;
+    }
+
+    if (VOS_TRUE == CNAS_XSD_GetAbortFlg_SysAcq())
+    {
+        return VOS_TRUE;
+    }
+
+    st1xSysInfo.usSid                   = pstLastSyncedSys->usSid;
+    st1xSysInfo.usNid                   = pstLastSyncedSys->usNid;
+    st1xSysInfo.stFreq                  = CNAS_XSD_GetHistorySyncedSysFreqList()->astFreq[0];
+
+    /* 紧急呼流程中，打断处理 */
+    /* 缓存业务触发搜网请求 */
+    CNAS_XSD_SaveCacheMsg(ulEventType, pstMsg);
+
+    /* 若当前系统有效，延迟打断 */
+    if (VOS_TRUE != CNAS_XSD_IsCurSysNotSuitableSys(&st1xSysInfo, VOS_FALSE, 0))
+    {
+        CNAS_XSD_SetSystemAcquiredAbortedCause(NAS_ERR_LOG_1X_SEARCH_RSLT_ABORTED_BY_MO_CALL_END);
+
+        /* 设置状态机打断标记 */
+        CNAS_XSD_SetAbortFlg_SysAcq(VOS_TRUE);
+
+        return VOS_TRUE;
+    }
+
+    CNAS_XSD_StopTimer(TI_CNAS_XSD_WAIT_CAS_OHM_IND);
+
+    CNAS_XSD_SndSysAcqRslt(CNAS_XSD_SYSTEM_ACQUIRED_RESULT_ABORTED,
+                           CNAS_XSD_GetCurSysAcqScene_SysAcq(),
+                           CNAS_XSD_IsImmediateSysAcq_SysAcq(),
+                           CNAS_XSD_GetOocTotalTimerExpiredFlg_SysAcq());
+
+    /* 退出层二状态机 */
+    CNAS_XSD_QuitFsmSysAcq_SysAcq();
+
+    return VOS_TRUE;
+}
+
+
+VOS_UINT32 CNAS_XSD_RcvTiEmcCallBackNetWorkSrchTimerExpired_SysAcq_WaitCasOhmInd(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    if (VOS_TRUE == CNAS_XSD_GetAbortFlg_SysAcq())
+    {
+        return VOS_TRUE;
+    }
+
+    /* 缓存业务触发搜网请求 */
+    CNAS_XSD_SaveCacheMsg(ulEventType, pstMsg);
+
+    CNAS_XSD_SetSystemAcquiredAbortedCause(NAS_ERR_LOG_1X_SEARCH_RSLT_ABORTED_BY_CALLBACK_SRCH_TIMEOUT);
+
+    /* 设置状态机打断标记 */
+    CNAS_XSD_SetAbortFlg_SysAcq(VOS_TRUE);
+
+    return VOS_TRUE;
+}
+
+
+VOS_UINT32 CNAS_XSD_RcvTiEmcCallBackModeProtectTimerExpired_SysAcq_WaitCasOhmInd(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    if (VOS_TRUE == CNAS_XSD_GetAbortFlg_SysAcq())
+    {
+        return VOS_TRUE;
+    }
+
+    CNAS_XSD_SetSystemAcquiredAbortedCause(NAS_ERR_LOG_1X_SEARCH_RSLT_ABORTED_BY_CALLBACK_MODE_TIMEOUT);
+
+    /* 缓存业务触发搜网请求 */
+    CNAS_XSD_SaveCacheMsg(ulEventType, pstMsg);
+
+    /* 设置状态机打断标记 */
+    CNAS_XSD_SetAbortFlg_SysAcq(VOS_TRUE);
+
+    return VOS_TRUE;
+}
+
+
+VOS_UINT32 CNAS_XSD_RcvMsccEndEmcCallBackReq_SysAcq_WaitCasOhmInd(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    if (VOS_TRUE == CNAS_XSD_GetAbortFlg_SysAcq())
+    {
+        return VOS_TRUE;
+    }
+
+    /* 缓存退出CallBack模式请求 */
+    CNAS_XSD_SaveCacheMsg(ulEventType, pstMsg);
+
+    CNAS_XSD_SetSystemAcquiredAbortedCause(NAS_ERR_LOG_1X_SEARCH_RSLT_ABORTED_BY_END_EMC_CALLBACK);
+
+    /* 设置状态机打断标记 */
+    CNAS_XSD_SetAbortFlg_SysAcq(VOS_TRUE);
+
+    return VOS_TRUE;
+}
+
+
+VOS_VOID CNAS_XSD_UpdateScanListChanStatusUponReceivedDeterminInd(
+    VOS_UINT16                                              usBeginScanListIndex,
+    CNAS_PRL_FREQENCY_CHANNEL_STRU                         *pstFreq,
+    CNAS_XSD_SCAN_CHANNEL_LIST_STRU                        *pstScanChanList
+)
+{
+    VOS_UINT16                          usCurFreqIndex;
+
+    usCurFreqIndex = usBeginScanListIndex;
+
+    if (usCurFreqIndex > 0)
+    {
+        usCurFreqIndex--;
+    }
+
+    /* 如果不是OOC场景下的MRU0插入频点，从scan list当前索引开始查找，直到找到该频点刷新为同步不存在 */
+    if (VOS_FALSE == CNAS_XSD_IsMru0FreqInOocScene(pstFreq))
+    {
+        CNAS_XSD_UpdateChanStatusInScanChanList(usCurFreqIndex,
+                                                pstFreq,
+                                                CNAS_XSD_SCAN_CHAN_STATUS_SYNCED_NO_EXIST,
+                                                pstScanChanList);
+
+        return;
+    }
+
+    /* 如果是OOC场景下的MRU0插入频点，只能从scan list起始位置0到当前索引查找，后续的频点不要刷新 */
+    CNAS_XSD_UpdateFreqStatusBeforeCurIndexInScanChanList(CNAS_XSD_SCAN_CHAN_STATUS_SYNCED_NO_EXIST,
+                                                          usCurFreqIndex,
+                                                          pstFreq,
+                                                          pstScanChanList);
+
+    return;
+}
+
+
+VOS_VOID CNAS_XSD_UpdateGeoSysRecordStatusUponReceivedDeterminInd(
+    CNAS_PRL_FREQENCY_CHANNEL_STRU                         *pstFreq
+)
+{
+    CNAS_XSD_GEO_SYS_RECORD_SRCH_LIST_STRU                 *pstGeoSysRecSrchList = VOS_NULL_PTR;
+
+    pstGeoSysRecSrchList = CNAS_XSD_GetGeoSysRecSrchListAddr_SysAcq();
+
+    /* TO DO: 这块的原因后续是否需要区分，遗留 */
+    CNAS_XSD_UpdateSysFreqStatusByFreqChanInGeoSysRecordSrchList(pstFreq,
+                                                                 CNAS_XSD_SCAN_CHAN_STATUS_SYNCED_NO_EXIST,
+                                                                 pstGeoSysRecSrchList);
+
+    return;
+}
+
+
+VOS_UINT32 CNAS_XSD_IsCurGeoListSrchedInGeoListSrchInfo(
+    CNAS_PRL_MATCHED_GEO_LIST_INFO_STRU                    *pstGeoListInfo
+)
+{
+    CNAS_XSD_GEO_LIST_SRCH_INFO_STRU   *pstGeoListSrchInfo = VOS_NULL_PTR;
+    VOS_UINT32                          i;
+    VOS_UINT32                          j;
+
+    pstGeoListSrchInfo = CNAS_XSD_GetGeoSrchListInfoAddr();
+
+    for (i = 0; i< pstGeoListInfo->ucGeoNum; i++)
+    {
+        for (j = 0; j < pstGeoListSrchInfo->usGeoNum; j++)
+        {
+            if (pstGeoListInfo->astGeoInfoList[i].usGeoFirstSysRecIndex == pstGeoListSrchInfo->pstGeoSrchInfo[j].usGeoBeginIndex)
+            {
+                /* 只要发现任何一个GEO未搜索过，都认为未搜索过 */
+                if (VOS_FALSE == pstGeoListSrchInfo->pstGeoSrchInfo[j].usGeoSrchStatus)
+                {
+                    return VOS_FALSE;
+                }
+            }
+        }
+    }
+
+    return VOS_TRUE;
+}
+
+
+VOS_VOID CNAS_XSD_GetMostMatched1xGeoList(
+    CNAS_PRL_1X_SYSTEM_STRU                                *pstCurSysInfo,
+    CNAS_PRL_MATCHED_GEO_LIST_INFO_STRU                    *pstMostMatchGeoListInfo
+)
+{
+    CNAS_PRL_MATCHED_GEO_LIST_INFO_STRU                     stGeoListInfo;
+
+    /* 获取所有匹配的GEO list */
+    NAS_MEM_SET_S(&stGeoListInfo, sizeof(stGeoListInfo), 0, sizeof(CNAS_PRL_MATCHED_GEO_LIST_INFO_STRU));
+
+    CNAS_PRL_Get1xSysGeoList(pstCurSysInfo, &stGeoListInfo);
+
+    /* 从GEO list中最match的GEO list */
+    CNAS_PRL_GetAllMostMatched1xGeoFrom1xGeoList(pstCurSysInfo, &stGeoListInfo, pstMostMatchGeoListInfo);
+
+    return;
+}
+
+
+VOS_VOID CNAS_XSD_ConstructGeoSysRecordSrchList(
+    CNAS_PRL_MATCHED_GEO_LIST_INFO_STRU                    *pstGeoListInfo,
+    CNAS_PRL_1X_SYSTEM_STRU                                *pstCurSysInfo,
+    CNAS_XSD_GEO_SYS_RECORD_SRCH_LIST_STRU                 *pstGeoSysRecSrchList
+)
+{
+    CNAS_PRL_EXT_SYS_RECORD_STRU       *pstSysRecord        = VOS_NULL_PTR;
+    VOS_UINT16                          usMorePrefSysNum;
+    VOS_UINT16                          usMaxSysRecNum;
+    VOS_UINT16                          usSysRecNum;
+    VOS_UINT32                          i;
+    CNAS_PRL_EXT_SYS_RECORD_STRU       *pstPrlSysInfo   = VOS_NULL_PTR;
+    CNAS_PRL_SYS_ROAMING_IND_ENUM_UINT8                     enCurRoamingInd;
+
+    pstPrlSysInfo                       = CNAS_PRL_GetPrlSysInfoAddr()->pstSysRecord;
+    enCurRoamingInd                     = CNAS_PRL_SYS_ROAMING_STATUS_ON;
+
+    usSysRecNum        = 0;
+    usMorePrefSysNum = 0;
+    usMaxSysRecNum     = 0;
+
+    /* 计算所有GEO列表中包含的系统记录个数 */
+    for (i = 0; i < pstGeoListInfo->ucGeoNum; i++)
+    {
+        usMaxSysRecNum += pstGeoListInfo->astGeoInfoList[i].usGeoSysRecNum;
+
+        if (CNAS_PRL_SYS_ROAMING_STATUS_OFF == (pstPrlSysInfo + pstGeoListInfo->astGeoInfoList[i].usMostMatchedIndex)->enRoamingInd)
+        {
+            enCurRoamingInd = CNAS_PRL_SYS_ROAMING_STATUS_OFF;
+        }
+    }
+
+    /* 分配内存空间 */
+    pstSysRecord = (CNAS_PRL_EXT_SYS_RECORD_STRU *)PS_MEM_ALLOC(UEPS_PID_XSD,
+                                                                usMaxSysRecNum * sizeof(CNAS_PRL_EXT_SYS_RECORD_STRU));
+
+    if (VOS_NULL_PTR == pstSysRecord)
+    {
+        return;
+    }
+
+    CNAS_XSD_BuildCompsiteGeoFromMostMatchedGeoList(pstGeoListInfo,
+                                                    &usSysRecNum,
+                                                    pstSysRecord,
+                                                    &usMorePrefSysNum);
+
+    if (VOS_FALSE == CNAS_XSD_GetIsConsider1xRoamIndInSysDeterminationFlg())
+    {
+        /* 构造系统捕获列表 */
+        CNAS_XSD_BuildGeoSysRecordSrchList(pstCurSysInfo,
+                                           usSysRecNum,
+                                           pstSysRecord,
+                                           pstGeoSysRecSrchList,
+                                           usMorePrefSysNum);
+    }
+    else
+    {
+        CNAS_XSD_BuildGeoSysRecordSrchListWithRoamIndStrategy(pstCurSysInfo,
+                                                              usSysRecNum,
+                                                              pstSysRecord,
+                                                              pstGeoSysRecSrchList,
+                                                              usMorePrefSysNum,
+                                                              enCurRoamingInd);
+    }
+
+    /* 记录本次GEO系统记录搜索列表中由哪些多少个GEO组成及他们的首个索引 */
+    if (VOS_NULL_PTR != pstGeoSysRecSrchList->pstAcqSysInfo)
+    {
+
+        /* 当前搜索级别设置为GEO系统记录搜索列表中首个系统记录索引 */
+        pstGeoSysRecSrchList->usCurSrchLevel            = pstGeoSysRecSrchList->pstAcqSysInfo[0].usLevel;
+
+        pstGeoSysRecSrchList->stCurSyncGeoInfo.usGeoNum = pstGeoListInfo->ucGeoNum;
+
+        for (i = 0; i < pstGeoListInfo->ucGeoNum; i++)
+        {
+            pstGeoSysRecSrchList->stCurSyncGeoInfo.ausGeoFirstIndex[i] = pstGeoListInfo->astGeoInfoList[i].usGeoFirstSysRecIndex;
+        }
+    }
+
+    /* 需要释放CNAS_PRL_BuildGeoSysRecList中构造的system record */
+    PS_MEM_FREE(UEPS_PID_XSD, pstSysRecord);
+}
+
+
+VOS_VOID CNAS_XSD_ContinueGeoSysRecordSrch(VOS_VOID)
+{
+    CNAS_XSD_SCAN_CHANNEL_LIST_STRU    *pstScanList = VOS_NULL_PTR;
+    CNAS_PRL_FREQENCY_CHANNEL_STRU      astDstChan[CNAS_CAS_1X_MAX_FREQ_NUM];
+    VOS_UINT16                          usDstChanNum;
+
+    CNAS_XSD_SYS_ACQ_SCENE_ENUM_UINT32  enCurAcqScene;
+    VOS_UINT32                          ulIsCallAbort;
+
+    ulIsCallAbort = VOS_FALSE;
+
+    /*******************************************************************************************
+     * 1. 继续GEO系统记录频点列表搜索
+     ******************************************************************************************/
+    usDstChanNum = 0;
+
+    NAS_MEM_SET_S(&astDstChan[0], sizeof(astDstChan), 0, sizeof(astDstChan));
+
+    CNAS_XSD_GetNextSysSyncListFromGeoSysRecordSrchList(CNAS_XSD_GetGeoSysRecSrchListAddr_SysAcq(),
+                                                        &usDstChanNum,
+                                                        &astDstChan[0]);
+
+    if (0 != usDstChanNum)
+    {
+        /* 数据连接态下搜索1x网络，每两次sync req之间加个缓冲时间 */
+        if (VOS_FALSE == CNAS_XSD_IsAllowedSyncImmediatelyWhenLteDoConn_SysAcq(VOS_TRUE))
+        {
+            /* 保存下一轮将要同步的频点，起延时定时器 */
+            CNAS_XSD_SaveLteOrDoConn1xSysAcqSyncDelayFreq(usDstChanNum, &astDstChan[0]);
+            CNAS_XSD_SetCurrFsmState(CNAS_XSD_SYS_ACQ_STA_WAIT_SYNC_DELAY_TIMER_EXPIRED_WHEN_LTE_OR_DO_CONN);
+            CNAS_XSD_StartTimer(TI_CNAS_XSD_SYS_ACQ_WHEN_LTE_OR_DO_CONN_SYNC_DELAY_TIMER,
+                                CNAS_XSD_GetLteOrDoConn1xSysAcqSyncDelayTimerLen());
+        }
+        else
+        {
+            /* 继续GEO系统记录频点同步操作 */
+            CNAS_XSD_ContinueSyncScanList_SysAcq(usDstChanNum, &astDstChan[0]);
+        }
+
+        return;
+    }
+
+    /*******************************************************************************************
+     * 2. 清除GEO搜索列表状态以及释放GEO系统记录搜索列表内存
+     ******************************************************************************************/
+    /* 先清除GEO搜索列表状态 */
+    CNAS_XSD_ClearGeoSrchListStatus();
+
+    /* 释放GEO系统记录搜索列表的内存 */
+    if (VOS_NULL_PTR != CNAS_XSD_GetGeoSysRecSrchListAddr_SysAcq()->pstAcqSysInfo)
+    {
+        PS_MEM_FREE(UEPS_PID_XSD, CNAS_XSD_GetGeoSysRecSrchListAddr_SysAcq()->pstAcqSysInfo);
+        CNAS_XSD_GetGeoSysRecSrchListAddr_SysAcq()->pstAcqSysInfo = VOS_NULL_PTR;
+    }
+
+    /*******************************************************************************************
+     * 3. GEO搜索结束，且同步失败，打断当前搜网流程。
+       a)如果之前有收到呼叫重播搜网，
+       b)当前搜网场景不是CNAS_XSD_SYS_ACQ_SCENE_SYSTEM_LOST_WITH_LTE_OR_DO_CONN，且当前是LTE\HRPD连接态
+     ******************************************************************************************/
+    enCurAcqScene       = CNAS_XSD_GetCurSysAcqScene_SysAcq();
+
+    if (VOS_TRUE == CNAS_XSD_IsAllowedPerformAbortProcedure_SysAcq(enCurAcqScene, &ulIsCallAbort))
+    {
+        CNAS_XSD_PerformAbortCurrSysAcqScene_SysAcq(ulIsCallAbort);
+        return;
+    }
+
+    /*******************************************************************************************
+     * 4. 继续scan list频点列表搜索
+     ******************************************************************************************/
+    pstScanList        = CNAS_XSD_GetScanChanListAddr();
+
+    CNAS_XSD_GetNextScanChanList_SysAcq(CNAS_XSD_GetCurChannelScanIndex(),
+                                        &usDstChanNum,
+                                        astDstChan,
+                                        pstScanList);
+
+    if (0 != usDstChanNum)
+    {
+        /* 数据连接态下搜索1x网络，每两次sync req之间加个缓冲时间 */
+        if (VOS_FALSE == CNAS_XSD_IsAllowedSyncImmediatelyWhenLteDoConn_SysAcq(VOS_FALSE))
+        {
+            /* 保存下一轮将要同步的频点，起延时定时器 */
+            CNAS_XSD_SaveLteOrDoConn1xSysAcqSyncDelayFreq(usDstChanNum, &astDstChan[0]);
+            CNAS_XSD_SetCurrFsmState(CNAS_XSD_SYS_ACQ_STA_WAIT_SYNC_DELAY_TIMER_EXPIRED_WHEN_LTE_OR_DO_CONN);
+            CNAS_XSD_StartTimer(TI_CNAS_XSD_SYS_ACQ_WHEN_LTE_OR_DO_CONN_SYNC_DELAY_TIMER,
+                                CNAS_XSD_GetLteOrDoConn1xSysAcqSyncDelayTimerLen());
+        }
+        else
+        {
+            /* scan list未全部同步完，继续发同步请求 */
+            CNAS_XSD_ContinueSyncScanList_SysAcq(usDstChanNum, astDstChan);
+        }
+
+        return;
+    }
+
+    /*******************************************************************************************
+     * 5. 处理scan list同步完成的后续流程
+     ******************************************************************************************/
+    /* scan list已全部同步完 */
+    CNAS_XSD_ProcScanListSyncComplete_SysAcq();
+
+    return;
+}
+
+
+VOS_VOID CNAS_XSD_ContinueAvailSysListSrch(VOS_VOID)
+{
+    CNAS_PRL_FREQENCY_CHANNEL_STRU      astDstChan[CNAS_CAS_1X_MAX_FREQ_NUM];
+    VOS_UINT16                          usDstChanNum;
+    CNAS_XSD_SYS_ACQ_SCENE_ENUM_UINT32  enScanScene;
+
+    enScanScene   = CNAS_XSD_GetCurSysAcqScene_SysAcq();
+
+    usDstChanNum = 0;
+
+    NAS_MEM_SET_S(&astDstChan[0], sizeof(astDstChan), 0, sizeof(astDstChan));
+
+    /***********************************************************************************************
+     * 1. 继续available list同步
+     **********************************************************************************************/
+    /* 获取下次同步available系统 */
+    CNAS_XSD_GetNextAvailSysAcqList_SysAcq(&usDstChanNum, &astDstChan[0]);
+
+    if (0 != usDstChanNum)
+    {
+        /* 数据连接态下搜索1x网络，每两次sync req之间加个缓冲时间 */
+        if (VOS_FALSE == CNAS_XSD_IsAllowedSyncImmediatelyWhenLteDoConn_SysAcq(VOS_FALSE))
+        {
+            /* 保存下一轮将要同步的频点，起延时定时器 */
+            CNAS_XSD_SaveLteOrDoConn1xSysAcqSyncDelayFreq(usDstChanNum, &astDstChan[0]);
+            CNAS_XSD_SetCurrFsmState(CNAS_XSD_SYS_ACQ_STA_WAIT_SYNC_DELAY_TIMER_EXPIRED_WHEN_LTE_OR_DO_CONN);
+            CNAS_XSD_StartTimer(TI_CNAS_XSD_SYS_ACQ_WHEN_LTE_OR_DO_CONN_SYNC_DELAY_TIMER,
+                                CNAS_XSD_GetLteOrDoConn1xSysAcqSyncDelayTimerLen());
+        }
+        else
+        {
+            /* 继续avoid system list频点同步 */
+            CNAS_XSD_ContinueSyncScanList_SysAcq(usDstChanNum, &astDstChan[0]);
+        }
+
+        return;
+    }
+
+    /***********************************************************************************************
+     * 2. 无available系统尝试同步Avoid系统
+     **********************************************************************************************/
+    if (VOS_TRUE == CNAS_XSD_IsAcquireAvoidSysNeeded(enScanScene))
+    {
+        CNAS_XSD_SetAvailSysAcqListFlg_SysAcq(VOS_FALSE);
+
+        /* 发送同步请求，同步available系统 */
+        NAS_MEM_SET_S(&astDstChan[0],
+                      sizeof(CNAS_PRL_FREQENCY_CHANNEL_STRU) * CNAS_CAS_1X_MAX_FREQ_NUM,
+                      0x00,
+                      sizeof(CNAS_PRL_FREQENCY_CHANNEL_STRU) * CNAS_CAS_1X_MAX_FREQ_NUM);
+
+        CNAS_XSD_GetNextAvoidSysAcqList_SysAcq(&usDstChanNum, &astDstChan[0]);
+
+        if (0 != usDstChanNum)
+        {
+            CNAS_XSD_SetAvoidSysAcqListFlg_SysAcq(VOS_TRUE);
+
+            /* 数据连接态下搜索1x网络，每两次sync req之间加个缓冲时间 */
+            if (VOS_FALSE == CNAS_XSD_IsAllowedSyncImmediatelyWhenLteDoConn_SysAcq(VOS_FALSE))
+            {
+                /* 保存下一轮将要同步的频点，起延时定时器 */
+                CNAS_XSD_SaveLteOrDoConn1xSysAcqSyncDelayFreq(usDstChanNum, &astDstChan[0]);
+                CNAS_XSD_SetCurrFsmState(CNAS_XSD_SYS_ACQ_STA_WAIT_SYNC_DELAY_TIMER_EXPIRED_WHEN_LTE_OR_DO_CONN);
+                CNAS_XSD_StartTimer(TI_CNAS_XSD_SYS_ACQ_WHEN_LTE_OR_DO_CONN_SYNC_DELAY_TIMER,
+                                    CNAS_XSD_GetLteOrDoConn1xSysAcqSyncDelayTimerLen());
+            }
+            else
+            {
+                CNAS_XSD_ContinueSyncScanList_SysAcq(usDstChanNum, &astDstChan[0]);
+            }
+
+            return;
+        }
+    }
+
+    /***********************************************************************************************
+     * 3. available system list已没有需要同步的频点，退出L2状态机
+     **********************************************************************************************/
+    /* 退出状态机时清空available list */
+    CNAS_XSD_InitAvailSysList(CNAS_XSD_INIT_CTX_STARTUP, CNAS_XSD_GetAvailSysFreqListAddr());
+
+    /* 将层二运行结果通知层一，层一收到此消息后进行层一状态的迁移 */
+    CNAS_XSD_SndSysAcqRslt(CNAS_XSD_SYSTEM_ACQUIRED_RESULT_FAILURE,
+                           CNAS_XSD_GetCurSysAcqScene_SysAcq(),
+                           CNAS_XSD_IsImmediateSysAcq_SysAcq(),
+                           CNAS_XSD_GetOocTotalTimerExpiredFlg_SysAcq());
+
+    /* 退出层二状态机 */
+    CNAS_XSD_QuitFsmSysAcq_SysAcq();
+
+}
+
+
+VOS_VOID CNAS_XSD_ContinueAvoidSysListSrch(VOS_VOID)
+{
+    CNAS_PRL_FREQENCY_CHANNEL_STRU      astDstChan[CNAS_CAS_1X_MAX_FREQ_NUM];
+    VOS_UINT16                          usDstChanNum;
+
+    usDstChanNum = 0;
+
+    NAS_MEM_SET_S(&astDstChan[0],
+                  sizeof(CNAS_PRL_FREQENCY_CHANNEL_STRU) * CNAS_CAS_1X_MAX_FREQ_NUM,
+                  0x00,
+                  sizeof(CNAS_PRL_FREQENCY_CHANNEL_STRU) * CNAS_CAS_1X_MAX_FREQ_NUM);
+
+    /***********************************************************************************************
+     * 1. 继续avoid list同步
+     **********************************************************************************************/
+    /* 获取下次同步available系统 */
+    CNAS_XSD_GetNextAvoidSysAcqList_SysAcq(&usDstChanNum, &astDstChan[0]);
+
+    if (0 != usDstChanNum)
+    {
+        /* 数据连接态下搜索1x网络，每两次sync req之间加个缓冲时间 */
+        if (VOS_FALSE == CNAS_XSD_IsAllowedSyncImmediatelyWhenLteDoConn_SysAcq(VOS_FALSE))
+        {
+            /* 保存下一轮将要同步的频点，起延时定时器 */
+            CNAS_XSD_SaveLteOrDoConn1xSysAcqSyncDelayFreq(usDstChanNum, &astDstChan[0]);
+            CNAS_XSD_SetCurrFsmState(CNAS_XSD_SYS_ACQ_STA_WAIT_SYNC_DELAY_TIMER_EXPIRED_WHEN_LTE_OR_DO_CONN);
+            CNAS_XSD_StartTimer(TI_CNAS_XSD_SYS_ACQ_WHEN_LTE_OR_DO_CONN_SYNC_DELAY_TIMER,
+                                CNAS_XSD_GetLteOrDoConn1xSysAcqSyncDelayTimerLen());
+        }
+        else
+        {
+            /* 继续avoid system list频点同步 */
+            CNAS_XSD_ContinueSyncScanList_SysAcq(usDstChanNum, &astDstChan[0]);
+        }
+
+        return;
+    }
+
+    /***********************************************************************************************
+     * 2. avoid system list已没有需要同步的频点，退出L2状态机
+     **********************************************************************************************/
+    /* 将层二运行结果通知层一，层一收到此消息后进行层一状态的迁移 */
+    CNAS_XSD_SndSysAcqRslt(CNAS_XSD_SYSTEM_ACQUIRED_RESULT_FAILURE,
+                           CNAS_XSD_GetCurSysAcqScene_SysAcq(),
+                           CNAS_XSD_IsImmediateSysAcq_SysAcq(),
+                           CNAS_XSD_GetOocTotalTimerExpiredFlg_SysAcq());
+
+    /* 退出层二状态机 */
+    CNAS_XSD_QuitFsmSysAcq_SysAcq();
+}
+
+
+VOS_UINT32 CNAS_XSD_IsCurrSysMostPref1xSysInGeoSysRecordSrchList(
+    CNAS_PRL_1X_SYSTEM_STRU                                *pstCurSysInfo,
+    CNAS_XSD_GEO_SYS_RECORD_SRCH_LIST_STRU                 *pstGeoSysRecSrchList
+)
+{
+    VOS_UINT16                          i;
+    VOS_UINT8                           ucIsAllSysRoam;
+
+    ucIsAllSysRoam                      = VOS_TRUE;
+
+    /***********************************************************************************************
+     * 注: 该函数里面不需要再判断是否是negative系统了，因为在调用该函数前，已经判断了系统是否是
+     *     negative系统。
+     *     调用该函数前，必须提前check系统是否是negative系统，否则negative系统可能会被选择!!!
+     **********************************************************************************************/
+
+#if 0
+    /* 当前系统的SID不在SID白名单中，则不认为是优先的系统 */
+    if (VOS_FALSE == CNAS_XSD_IsSidInOperLockWhiteSidList(pstCurSysInfo->usSid))
+    {
+        return VOS_FALSE;
+    }
+#endif
+
+    /* 如果当前同步到的系统与当前level中的系统匹配，则可以驻留 */
+    for (i = 0; i < pstGeoSysRecSrchList->usTotalNum; i++ )
+    {
+        /* 跳过与当前同步的level不同的系统 */
+        if (pstGeoSysRecSrchList->usCurSrchLevel != pstGeoSysRecSrchList->pstAcqSysInfo[i].usLevel)
+        {
+            continue;
+        }
+
+        /* 跳过同步不存在的频点 */
+        if (CNAS_XSD_SCAN_CHAN_STATUS_SYNCED_NO_EXIST == pstGeoSysRecSrchList->pstAcqSysInfo[i].enSysStatus)
+        {
+            continue;
+        }
+
+        if (CNAS_PRL_SYS_ROAMING_STATUS_OFF == pstGeoSysRecSrchList->pstAcqSysInfo[i].enRoamingInd)
+        {
+            ucIsAllSysRoam = VOS_FALSE;
+        }
+
+        /* 跳过当前频点与系统SID/NID不匹配的系统 */
+        if (VOS_FALSE == CNAS_PRL_Is1xSysMatched(pstCurSysInfo,
+                                                 &(pstGeoSysRecSrchList->pstAcqSysInfo[i].stAcqSys)))
+        {
+            continue;
+        }
+
+#if 0
+        /* 当前系统是优先的系统 */
+        if (CNAS_PRL_PREF_NEG_SYS_PREF == pstGeoSysRecSrchList->pstAcqSysInfo[i].enPrefNegSys)
+        {
+            return VOS_TRUE;
+        }
+
+        /* 如果是negative系统，但在home SID/NID列表中，仍然当作是一个pref系统处理 */
+        if (VOS_TRUE == CNAS_PRL_IsCurrentSystemInHomeSidNidList(pstCurSysInfo))
+        {
+            return VOS_TRUE;
+        }
+#endif
+
+        /* 不考虑ROAM IND的场景，直接认为是最优系统 */
+        if (VOS_FALSE == CNAS_XSD_GetIsConsider1xRoamIndInSysDeterminationFlg())
+        {
+            return VOS_TRUE;
+        }
+
+        /* 若匹配到漫游的系统，判断更高优先级的系统中是否有非漫游，
+           若存在，继续同步
+           若不存在，直接驻留 */
+        if (CNAS_PRL_SYS_ROAMING_STATUS_OFF != pstGeoSysRecSrchList->pstAcqSysInfo[i].enRoamingInd)
+        {
+            if (VOS_FALSE == ucIsAllSysRoam)
+            {
+                return VOS_FALSE;
+            }
+        }
+
+        return VOS_TRUE;
+    }
+
+    return VOS_FALSE;
+}
+
+
+VOS_UINT32 CNAS_XSD_IsCurSysInGeoSysRecordSrchList(
+    CNAS_PRL_1X_SYSTEM_STRU                                *pstCurSysInfo,
+    CNAS_XSD_GEO_SYS_RECORD_SRCH_LIST_STRU                 *pstGeoSysRecSrchList
+)
+{
+    VOS_UINT16                          i;
+
+    for (i = 0; i < pstGeoSysRecSrchList->usTotalNum; i++ )
+    {
+        /* 跳过当前频点与系统SID/NID不匹配的系统 */
+        if (VOS_TRUE == CNAS_PRL_Is1xSysMatched(pstCurSysInfo,
+                                                &(pstGeoSysRecSrchList->pstAcqSysInfo[i].stAcqSys)))
+        {
+            return VOS_TRUE;
+        }
+    }
+
+    return VOS_FALSE;
+}
+
+
+VOS_UINT32 CNAS_XSD_IsCurSysGeoListSameAsCurSyncGeoInfo(
+    CNAS_PRL_MATCHED_GEO_LIST_INFO_STRU                    *pstGeoListInfo,
+    CNAS_XSD_GEO_SYS_RECORD_SRCH_LIST_STRU                 *pstGeoSysRecSrchList
+)
+{
+    VOS_UINT32                          i;
+
+    if (pstGeoListInfo->ucGeoNum != pstGeoSysRecSrchList->stCurSyncGeoInfo.usGeoNum)
+    {
+        return VOS_FALSE;
+    }
+
+    for (i = 0; i < pstGeoListInfo->ucGeoNum; i++)
+    {
+        if (pstGeoListInfo->astGeoInfoList[i].usGeoFirstSysRecIndex != pstGeoSysRecSrchList->stCurSyncGeoInfo.ausGeoFirstIndex[i])
+        {
+            return VOS_FALSE;
+        }
+    }
+
+    return VOS_TRUE;
+}
+
+
+VOS_VOID CNAS_XSD_PreformBestPreferedSystemSelectionAndNoGeoSysRecordSearchList_SysAcq(
+    CAS_CNAS_1X_SYSTEM_SYNC_CNF_STRU   *pstSyncCnf
+)
+{
+    CNAS_PRL_FREQENCY_CHANNEL_STRU                          astDstChan[CNAS_CAS_1X_MAX_FREQ_NUM];
+    VOS_UINT16                                              usDstChanNum;
+    CNAS_PRL_MATCHED_GEO_LIST_INFO_STRU                     stGeoListInfo = {0};
+    VOS_UINT16                                              usCurScanListIndex;
+    CNAS_PRL_1X_SYSTEM_STRU                                 stCurSysInfo;
+    VOS_UINT32                                              ulIsNegSys;
+    CNAS_XSD_SCAN_CHANNEL_LIST_STRU                        *pstScanList = VOS_NULL_PTR;
+    CNAS_XSD_SYS_ACQ_SCENE_ENUM_UINT32                      enCurAcqScene;
+    VOS_UINT32                                              ulIsCallAbort;
+    VOS_UINT8                                               ucNextAcqIndex;
+
+    ucNextAcqIndex                                          = 0;
+    enCurAcqScene = CNAS_XSD_GetCurSysAcqScene_SysAcq();
+    ulIsCallAbort = VOS_FALSE;
+
+    /***********************************************************************************************
+     * 1. 刷新available系统下次搜索索引，并通知接入层驻留当前同步到的系统
+     **********************************************************************************************/
+    if (VOS_TRUE == CNAS_XSD_GetAvailSysAcqListFlg_SysAcq())
+    {
+        usCurScanListIndex = CNAS_XSD_GetAvailSysFreqListNextSrchIndex();
+
+        /* 跳过失败的频点个数以及当前成功的频点个数 */
+        CNAS_XSD_SetAvailSysFeqListNextSrchIndex((VOS_UINT8)(usCurScanListIndex + pstSyncCnf->ulSyncFailFreqNum + 1));
+
+        /* 如果该系统在SID白名单中，则可以直接驻留 */
+        if (VOS_TRUE == CNAS_XSD_IsSidInOperLockSysWhiteList(pstSyncCnf->stSyncedSysId.usSid))
+        {
+            /* 发送ID_CNAS_CAS_1X_CAMP_SYNCED_CHANNEL_NTF */
+            CNAS_XSD_SndCas1xCampSyncedChannelNtf();
+
+            /* 迁移到 CNAS_XSD_SYS_ACQ_STA_WAIT_CAS_OHM_IND状态, 并启动保护定时器TI_CNAS_XSD_WAIT_CAS_OHM_IND */
+            CNAS_XSD_SetCurrFsmState(CNAS_XSD_SYS_ACQ_STA_WAIT_CAS_OHM_IND);
+
+            /* 启动保护定时器 */
+            CNAS_XSD_StartTimer(TI_CNAS_XSD_WAIT_CAS_OHM_IND, TI_CNAS_XSD_WAIT_CAS_OHM_IND_LEN);
+
+            return;
+        }
+       /***********************************************************************************************
+         * 当前是非GEO搜索，同步成功但不满足驻留条件，满足下面任一条件，退出当前搜网
+            a)呼叫重播搜网列表不为空，搜索场景是LTE\HRPD连接态下的1X搜网
+            b)LTE\HRPD从idle态到连接态，
+         **********************************************************************************************/
+        if (VOS_TRUE == CNAS_XSD_IsAllowedPerformAbortProcedure_SysAcq(enCurAcqScene, &ulIsCallAbort))
+        {
+            CNAS_XSD_PerformAbortCurrSysAcqScene_SysAcq(ulIsCallAbort);
+
+            return;
+        }
+
+        /* 继续available系统搜索 */
+        CNAS_XSD_ContinueAvailSysListSrch();
+
+        return;
+    }
+
+    if (VOS_TRUE == CNAS_XSD_GetAvoidSysAcqListFlg_SysAcq())
+    {
+        /* 如果该系统SID是国内的系统，则直接退出进入OOC状态，否则继续尝试同步剩余的Avoid频点信息 */
+        if (CNAS_CCB_NETWORK_PROPERTY_NATIONAL == CNAS_CCB_IsCur1XCampOnNationalNetWork())
+        {
+            /* 将层二运行结果通知层一，层一收到此消息后进行层一状态的迁移 */
+            CNAS_XSD_SndSysAcqRslt(CNAS_XSD_SYSTEM_ACQUIRED_RESULT_FAILURE,
+                                   CNAS_XSD_GetCurSysAcqScene_SysAcq(),
+                                   CNAS_XSD_IsImmediateSysAcq_SysAcq(),
+                                   CNAS_XSD_GetOocTotalTimerExpiredFlg_SysAcq());
+
+            /* 退出层二状态机 */
+            CNAS_XSD_QuitFsmSysAcq_SysAcq();
+
+            return;
+        }
+
+        usCurScanListIndex = 0;
+
+        (VOS_VOID)CNAS_XSD_GetAvoidFreqIndexOfAvoidlist((CNAS_PRL_FREQENCY_CHANNEL_STRU *)&(pstSyncCnf->stFreq),
+                                                        (VOS_UINT8 *)&usCurScanListIndex);
+
+        ucNextAcqIndex = CNAS_XSD_GetAvoidFreqListAddr()->ucNextAcqIndex;
+
+        usCurScanListIndex = (VOS_UINT16)CNAS_MAX(ucNextAcqIndex, usCurScanListIndex);
+
+        /* 跳过失败的频点个数以及当前成功的频点个数 */
+        CNAS_XSD_SetAvoidSysFeqListNextSrchIndex((VOS_UINT8)(usCurScanListIndex + 1));
+
+        /***********************************************************************************************
+          * 当前是非GEO搜索，同步成功但不满足主流条件，满足下面任一条件，退出当前搜网
+             a)呼叫重播搜网列表不为空，搜索场景是LTE\HRPD连接态下的1X搜网
+             b)LTE\HRPD从idle态到连接态，
+          **********************************************************************************************/
+         if (VOS_TRUE == CNAS_XSD_IsAllowedPerformAbortProcedure_SysAcq(enCurAcqScene, &ulIsCallAbort))
+         {
+             CNAS_XSD_PerformAbortCurrSysAcqScene_SysAcq(ulIsCallAbort);
+
+             return;
+         }
+
+        /* 继续avoid系统搜索 */
+        CNAS_XSD_ContinueAvoidSysListSrch();
+
+        return;
+    }
+
+    /***********************************************************************************************
+     * 2. 当前系统在PRL表中处理
+     **********************************************************************************************/
+    stCurSysInfo.stFreq.enBandClass = pstSyncCnf->stFreq.usBandClass;
+    stCurSysInfo.stFreq.usChannel   = pstSyncCnf->stFreq.usChannel;
+    stCurSysInfo.usNid              = pstSyncCnf->stSyncedSysId.usNid;
+    stCurSysInfo.usSid              = pstSyncCnf->stSyncedSysId.usSid;
+
+    NAS_MEM_SET_S(&stGeoListInfo, sizeof(stGeoListInfo), 0, sizeof(CNAS_PRL_MATCHED_GEO_LIST_INFO_STRU));
+
+    CNAS_XSD_GetMostMatched1xGeoList(&stCurSysInfo, &stGeoListInfo);
+
+    if (0 != stGeoListInfo.ucGeoNum)
+    {
+
+        ulIsNegSys = CNAS_XSD_IsCurSysNotSuitableSys(&stCurSysInfo, VOS_FALSE, 0);
+
+        if (VOS_TRUE == ulIsNegSys)
+        {
+            CNAS_WARNING_LOG(UEPS_PID_XSD,
+                             "CNAS_XSD_PreformBestPreferedSystemSelectionAndNoGeoSysRecordSearchList_SysAcq: Curr System is Neg!")
+        }
+
+        /* 使用一个新的GEO进行最优的系统选择 */
+        CNAS_XSD_PeformBestPreferedSystemSelectionUsingNewGeo_SysAcq(&stGeoListInfo,
+                                                                     &stCurSysInfo,
+                                                                     ulIsNegSys);
+
+        return;
+    }
+
+    /***********************************************************************************************
+     * 3. 如果当前系统不在PRL表中，但系统是home系统，则捕获该系统
+     **********************************************************************************************/
+    /* HOME SID/NID 列表不影响系统驻留的判断 */
+    /* 不在PRL表中，即使在HOME SID/NID列表中，也不允许直接驻留 */
+
+    /***********************************************************************************************
+     * 4. 同步到的系统是available系统，这里把scan list中对应频点状态再次刷为不存在，避免后续会继续同步
+     **********************************************************************************************/
+    pstScanList = CNAS_XSD_GetScanChanListAddr();
+
+    usCurScanListIndex = pstScanList->usCurScanIndex;
+
+    CNAS_XSD_UpdateAvailOrNegSystemChanStatusInScanChanList_SysAcq((CNAS_PRL_FREQENCY_CHANNEL_STRU *)&(pstSyncCnf->stFreq),
+                                                                   pstScanList);
+
+    /***********************************************************************************************
+     * 5. 如果当前系统是available系统，上报服务信息；同时刷新available list
+     **********************************************************************************************/
+    if (VOS_FALSE == CNAS_PRL_GetPrefOnlyFlg())
+    {
+        /* check当前available系统是否在白名单，在白名单中，则添加到available系统中，上报服务可用 */
+        if (VOS_TRUE == CNAS_XSD_IsSidInOperLockSysWhiteList(pstSyncCnf->stSyncedSysId.usSid))
+        {
+             /* 通知服务可获得指示 */
+            CNAS_XSD_ReportSrvAvailableInd_SysAcq(&stCurSysInfo);
+
+            /* 刷新available list */
+            CNAS_XSD_AddAvailSysFreqList(&(stCurSysInfo.stFreq));
+        }
+    }
+
+    /***********************************************************************************************
+     * 6. 当前是非GEO搜索，同步成功但不满足主流条件，满足下面任一条件，退出当前搜网
+        a)呼叫重播搜网列表不为空，搜索场景是LTE\HRPD连接态下的1X搜网
+        b)LTE\HRPD从idle态到连接态，
+     **********************************************************************************************/
+    if (CNAS_CCB_VERSION_SRLTE == CNAS_CCB_IsVersionSrlte())
+    {
+        if (VOS_TRUE == CNAS_XSD_IsAllowedPerformAbortProcedure_SysAcq(enCurAcqScene, &ulIsCallAbort))
+        {
+            CNAS_XSD_PerformAbortCurrSysAcqScene_SysAcq(ulIsCallAbort);
+
+            return;
+        }
+    }
+
+    /***********************************************************************************************
+     * 7. 继续scan list频点列表搜索
+     **********************************************************************************************/
+    usDstChanNum       = 0;
+
+    NAS_MEM_SET_S(&astDstChan[0], sizeof(astDstChan), 0, sizeof(astDstChan));
+
+    CNAS_XSD_GetNextScanChanList_SysAcq(usCurScanListIndex, &usDstChanNum, astDstChan, pstScanList);
+
+    if (0 != usDstChanNum)
+    {
+        /* 数据连接态下搜索1x网络，每两次sync req之间加个缓冲时间 */
+        if (VOS_FALSE == CNAS_XSD_IsAllowedSyncImmediatelyWhenLteDoConn_SysAcq(VOS_FALSE))
+        {
+            /* 保存下一轮将要同步的频点，起延时定时器 */
+            CNAS_XSD_SaveLteOrDoConn1xSysAcqSyncDelayFreq(usDstChanNum, &astDstChan[0]);
+            CNAS_XSD_SetCurrFsmState(CNAS_XSD_SYS_ACQ_STA_WAIT_SYNC_DELAY_TIMER_EXPIRED_WHEN_LTE_OR_DO_CONN);
+            CNAS_XSD_StartTimer(TI_CNAS_XSD_SYS_ACQ_WHEN_LTE_OR_DO_CONN_SYNC_DELAY_TIMER,
+                                CNAS_XSD_GetLteOrDoConn1xSysAcqSyncDelayTimerLen());
+        }
+        else
+        {
+            /* 继续scan list同步操作 */
+            CNAS_XSD_ContinueSyncScanList_SysAcq(usDstChanNum, astDstChan);
+        }
+
+        return;
+    }
+
+    /*******************************************************************************************
+     * 8. 处理scan list同步完成的后续流程
+     ******************************************************************************************/
+    CNAS_XSD_ProcScanListSyncComplete_SysAcq();
+
+    return;
+}
+
+
+VOS_VOID CNAS_XSD_PreformBestPreferedSystemSelectionAndGeoSysRecordSearchListExist_SysAcq(
+    CAS_CNAS_1X_SYSTEM_SYNC_CNF_STRU   *pstSyncCnf
+)
+{
+    CNAS_PRL_MATCHED_GEO_LIST_INFO_STRU                     stGeoListInfo = {0};
+    CNAS_PRL_1X_SYSTEM_STRU                                 stCurSysInfo;
+    VOS_UINT32                                              ulIsNegSys;
+    CNAS_CAS_1X_SYNC_RSLT_INFO_STRU                         stSyncFailChan;
+    CNAS_XSD_GEO_SYS_RECORD_SRCH_LIST_STRU                 *pstGeoSysRecSrchList = VOS_NULL_PTR;
+
+    /***********************************************************************************************
+     * 1. 刷新GEO系统记录搜索列表
+     *    注: negative系统不需要刷新scan list中的频点，因为negative系统已经在之前加到avoid列表中了，
+     *        在下一次同步请求时，会被过滤掉
+     **********************************************************************************************/
+    stCurSysInfo.stFreq.enBandClass = pstSyncCnf->stFreq.usBandClass;
+    stCurSysInfo.stFreq.usChannel   = pstSyncCnf->stFreq.usChannel;
+    stCurSysInfo.usNid              = pstSyncCnf->stSyncedSysId.usNid;
+    stCurSysInfo.usSid              = pstSyncCnf->stSyncedSysId.usSid;
+
+    ulIsNegSys = CNAS_XSD_IsCurSysNotSuitableSys(&stCurSysInfo, VOS_FALSE, 0);
+
+    if (VOS_FALSE == ulIsNegSys)
+    {
+        /* 刷新当前同步成功的频点状态，GEO中系统记录搜索列表中最match的系统频点刷新为搜索存在，其他为搜索不存在 */
+        CNAS_XSD_UpdateSyncSuccFreqStatusInGeoSysRecordSrchList_SysAcq(&(pstSyncCnf->stFreq),
+                                                                       &(pstSyncCnf->stSyncedSysId));
+    }
+    else
+    {
+        stSyncFailChan.stFreq.usBandClass = pstSyncCnf->stFreq.usBandClass;
+        stSyncFailChan.stFreq.usChannel   = pstSyncCnf->stFreq.usChannel;
+
+        /* 当前系统是negative系统，刷新状态为搜索不存在 */
+        CNAS_XSD_UpdateSyncFailFreqStatusInGeoSysRecordSrchList_SysAcq(1, &stSyncFailChan);
+
+        /* 当该系统是neg时，需刷新该频点为不存在，如果不刷新的话，继续同步仍然会同步该频点
+           获取下一个同步频点时的逻辑为未同步或者同步存在 */
+        CNAS_XSD_UpdateAvailOrNegSystemChanStatusInScanChanList_SysAcq(&stCurSysInfo.stFreq,
+                                                                       CNAS_XSD_GetScanChanListAddr());
+    }
+
+    /* 刷新当前同步失败的频点 */
+    CNAS_XSD_UpdateSyncFailFreqStatusInGeoSysRecordSrchList_SysAcq((VOS_UINT16)pstSyncCnf->ulSyncFailFreqNum,
+                                                                   &(pstSyncCnf->astSyncRsltList[0]));
+
+    /***********************************************************************************************
+     * 2. 当前系统在PRL表中处理
+     **********************************************************************************************/
+    NAS_MEM_SET_S(&stGeoListInfo, sizeof(stGeoListInfo), 0, sizeof(CNAS_PRL_MATCHED_GEO_LIST_INFO_STRU));
+
+    CNAS_XSD_GetMostMatched1xGeoList(&stCurSysInfo, &stGeoListInfo);
+
+    if (0 != stGeoListInfo.ucGeoNum)
+    {
+        /***********************************************************************************************
+         * 1.1. 当前系统在GEO系统搜索列表中处理
+         **********************************************************************************************/
+        pstGeoSysRecSrchList = CNAS_XSD_GetGeoSysRecSrchListAddr_SysAcq();
+
+        if (VOS_TRUE == CNAS_XSD_IsCurSysInGeoSysRecordSrchList(&stCurSysInfo, pstGeoSysRecSrchList))
+        {
+            /***************************************************************************************
+             * i 当前系统可以直接驻留处理
+             **************************************************************************************/
+            /* 根据scan list里列表中的频点状态，刷新GEO系统记录搜索列表中的频点状态及下次搜索索引 */
+            CNAS_XSD_UpdateGeoSysRecordListInfoAccordingToScanChanList(pstGeoSysRecSrchList);
+
+            /* 当前系统是高优先级系统 */
+            if (VOS_TRUE == CNAS_XSD_IsCurrSysMostPref1xSysInGeoSysRecordSrchList(&stCurSysInfo, pstGeoSysRecSrchList))
+            {
+                /* 先提前通知上层服务状态 */
+                CNAS_XSD_ReportSrvAvailableInd_SysAcq(&stCurSysInfo);
+
+                /* 发送ID_CNAS_CAS_1X_CAMP_SYNCED_CHANNEL_NTF */
+                CNAS_XSD_SndCas1xCampSyncedChannelNtf();
+
+                /* 迁移到 CNAS_XSD_SYS_ACQ_STA_WAIT_CAS_OHM_IND状态, 并启动保护定时器TI_CNAS_XSD_WAIT_CAS_OHM_IND */
+                CNAS_XSD_SetCurrFsmState(CNAS_XSD_SYS_ACQ_STA_WAIT_CAS_OHM_IND);
+
+                /* 启动保护定时器 */
+                CNAS_XSD_StartTimer(TI_CNAS_XSD_WAIT_CAS_OHM_IND, TI_CNAS_XSD_WAIT_CAS_OHM_IND_LEN);
+
+                return;
+            }
+
+            /***************************************************************************************
+             * ii 继续GEO系统记录搜索列表搜索
+             **************************************************************************************/
+            CNAS_XSD_ContinueGeoSysRecordSrch();
+            return;
+        }
+
+        /*******************************************************************************************
+         * 1.2 当前同步到的系统是GEO系统搜索列表中的低优先级系统, 继续GEO系统记录搜索列表搜索
+         *     注: GEO系统记录搜索列表在构造时，仅存放了当前同步到系统以及在GEO中比它优先级高的系统，
+                   低优先级系统并没有放到GEO系统搜索列表中。因此在判断当前系统是否是GEO系统记录搜索
+                   列表中的低优先级系统，原则如下:
+                   1. 当前同步到的系统不在GEO系统记录搜索列表中；且
+                   2. 当前同步到的系统在PRL表中的GEO与当前正在同步的GEO信息一致
+                   满足上述条件，则认为是GEO中低优先级系统，程序将继续当前的GEO系统记录搜索列表中高
+                   优先频点同步
+         *******************************************************************************************/
+        if (VOS_TRUE == CNAS_XSD_IsCurSysGeoListSameAsCurSyncGeoInfo(&stGeoListInfo, pstGeoSysRecSrchList))
+        {
+            CNAS_XSD_ContinueGeoSysRecordSrch();
+
+            return;
+        }
+
+        /*******************************************************************************************
+         * 1.3 当前系统是新的GEO，且已经搜索过,处理如下:
+         *     i)  如果是negative系统，则当前继续GEO搜索，否则
+         *     ii) 直接驻留当前系统
+         *******************************************************************************************/
+        /* 如果这是个新的GEO，且新的GEO已经搜索过，直接驻留当前系统，避免程序死循环 */
+        if (VOS_TRUE == CNAS_XSD_IsCurGeoListSrchedInGeoListSrchInfo(&stGeoListInfo))
+        {
+            if (VOS_TRUE == ulIsNegSys)
+            {
+                CNAS_XSD_ContinueGeoSysRecordSrch();
+
+                return;
+            }
+
+            /* 先提前通知上层服务状态 */
+            CNAS_XSD_ReportSrvAvailableInd_SysAcq(&stCurSysInfo);
+
+            /* 发送ID_CNAS_CAS_1X_CAMP_SYNCED_CHANNEL_NTF */
+            CNAS_XSD_SndCas1xCampSyncedChannelNtf();
+
+            /* 迁移到 CNAS_XSD_SYS_ACQ_STA_WAIT_CAS_OHM_IND状态, 并启动保护定时器TI_CNAS_XSD_WAIT_CAS_OHM_IND */
+            CNAS_XSD_SetCurrFsmState(CNAS_XSD_SYS_ACQ_STA_WAIT_CAS_OHM_IND);
+
+            /* 启动保护定时器 */
+            CNAS_XSD_StartTimer(TI_CNAS_XSD_WAIT_CAS_OHM_IND, TI_CNAS_XSD_WAIT_CAS_OHM_IND_LEN);
+
+            return;
+        }
+
+        /*******************************************************************************************
+         * 1.4. 这是未搜索过的新的GEO，释放老的GEO系统记录搜索列表，继续新的GEO进行系统选择
+         ******************************************************************************************/
+        /* 释放当前的GEO系统记录搜索列表 */
+        PS_MEM_FREE(UEPS_PID_XSD, pstGeoSysRecSrchList->pstAcqSysInfo);
+        pstGeoSysRecSrchList->pstAcqSysInfo = VOS_NULL_PTR;
+
+        /* 使用一个新的GEO进行最优的系统选择 */
+        CNAS_XSD_PeformBestPreferedSystemSelectionUsingNewGeo_SysAcq(&stGeoListInfo,
+                                                                     &stCurSysInfo,
+                                                                     ulIsNegSys);
+
+        return;
+    }
+
+    /***********************************************************************************************
+     * 3. 如果当前系统不在PRL表中，但系统是home系统，则捕获该系统
+     **********************************************************************************************/
+    /* HOME SID/NID 列表不影响系统驻留的判断 */
+    /* 不在PRL表中，即使在HOME SID/NID列表中，也不允许直接驻留 */
+
+    /***********************************************************************************************
+     * 4. 同步到的系统是available系统，这里把scan list中对应频点状态再次刷为不存在
+     **********************************************************************************************/
+    CNAS_XSD_UpdateAvailOrNegSystemChanStatusInScanChanList_SysAcq(&stCurSysInfo.stFreq,
+                                                                   CNAS_XSD_GetScanChanListAddr());
+
+    /***********************************************************************************************
+     * 5. 如果当前系统是available系统，上报服务信息；同时刷新available list
+     **********************************************************************************************/
+    if (VOS_FALSE == CNAS_PRL_GetPrefOnlyFlg())
+    {
+        /* check当前available系统是否在白名单，在白名单中，则添加到available系统中，上报服务可用 */
+        if (VOS_TRUE == CNAS_XSD_IsSidInOperLockSysWhiteList(pstSyncCnf->stSyncedSysId.usSid))
+        {
+            /* 先提前通知上层服务状态 */
+            CNAS_XSD_ReportSrvAvailableInd_SysAcq(&stCurSysInfo);
+
+            /* 刷新available list */
+            CNAS_XSD_AddAvailSysFreqList(&(stCurSysInfo.stFreq));
+        }
+    }
+
+    /***********************************************************************************************
+     * 6. 继续GEO系统记录搜索列表搜索
+     **********************************************************************************************/
+    CNAS_XSD_ContinueGeoSysRecordSrch();
+
+    return;
+}
+
+
+VOS_VOID CNAS_XSD_ProcSyncFailAndNoGeoSysRecorSearchList_SysAcq(
+    CAS_CNAS_1X_SYSTEM_SYNC_CNF_STRU   *pstSyncCnf
+)
+{
+    CNAS_XSD_SCAN_CHANNEL_LIST_STRU    *pstScanList = VOS_NULL_PTR;
+    CNAS_PRL_FREQENCY_CHANNEL_STRU      astDstChan[CNAS_CAS_1X_MAX_FREQ_NUM];
+    VOS_UINT16                          usCurScanListIndex;
+    VOS_UINT16                          usDstChanNum;
+    VOS_UINT16                          usSyncFailFreqNum;
+    VOS_UINT8                           ucNextAcqIndex;
+
+    ucNextAcqIndex                      = 0;
+
+    usSyncFailFreqNum = (VOS_UINT16)pstSyncCnf->ulSyncFailFreqNum;
+
+
+    /* SRLTE 1x搜网不申请资源，SYNC CNF结果是NO RF，最后一个失败频点的原因值是NO RF，下一轮继续同步该频点 */
+    if ((CNAS_CCB_VERSION_SRLTE                 == CNAS_CCB_IsVersionSrlte())
+     && (CNAS_CAS_1X_RSLT_NO_RF                 == pstSyncCnf->enSyncRslt)
+     && (0                                      != usSyncFailFreqNum))
+    {
+        usSyncFailFreqNum = (VOS_UINT16)pstSyncCnf->ulSyncFailFreqNum - 1;
+    }
+
+
+    /***********************************************************************************************
+     * 1. 继续available系统频点同步
+     **********************************************************************************************/
+    if (VOS_TRUE == CNAS_XSD_GetAvailSysAcqListFlg_SysAcq())
+    {
+        /* 更新available系统下次搜索索引 */
+        usCurScanListIndex = CNAS_XSD_GetAvailSysFreqListNextSrchIndex();
+
+        /* 下轮同步的起始索引从上轮失败的NO RF的那个频点索引开始 */
+        CNAS_XSD_SetAvailSysFeqListNextSrchIndex((VOS_UINT8)(usCurScanListIndex + usSyncFailFreqNum));
+
+        CNAS_XSD_ContinueAvailSysListSrch();
+
+        return;
+    }
+
+    /***********************************************************************************************
+     * 2. 继续Avoid系统频点同步
+     **********************************************************************************************/
+    if (VOS_TRUE == CNAS_XSD_GetAvoidSysAcqListFlg_SysAcq())
+    {
+        /* 更新avoid系统下次搜索索引 */
+        usCurScanListIndex = 0x00FF;
+
+        if ((pstSyncCnf->ulSyncFailFreqNum > 0)
+         && (pstSyncCnf->ulSyncFailFreqNum <= CNAS_CAS_1X_MAX_FREQ_NUM))
+        {
+            (VOS_VOID)CNAS_XSD_GetAvoidFreqIndexOfAvoidlist((CNAS_PRL_FREQENCY_CHANNEL_STRU *)&(pstSyncCnf->astSyncRsltList[pstSyncCnf->ulSyncFailFreqNum - 1].stFreq),
+                                                            (VOS_UINT8 *)&usCurScanListIndex);
+        }
+
+        /* 下轮同步的起始索引从上轮失败的NO RF的那个频点索引开始 */
+        if ((CNAS_CCB_VERSION_SRLTE                 == CNAS_CCB_IsVersionSrlte())
+         && (CNAS_CAS_1X_RSLT_NO_RF                 == pstSyncCnf->enSyncRslt))
+        {
+            CNAS_XSD_SetAvoidSysFeqListNextSrchIndex((VOS_UINT8)(usCurScanListIndex));
+        }
+        else
+        {
+            ucNextAcqIndex = CNAS_XSD_GetAvoidFreqListAddr()->ucNextAcqIndex;
+
+            usCurScanListIndex = (VOS_UINT16)CNAS_MAX(ucNextAcqIndex, usCurScanListIndex);
+
+            CNAS_XSD_SetAvoidSysFeqListNextSrchIndex((VOS_UINT8)(usCurScanListIndex + 1));
+        }
+
+        CNAS_XSD_ContinueAvoidSysListSrch();
+
+        return;
+    }
+
+    /*******************************************************************************************
+     * 3. 继续scan list同步
+     ******************************************************************************************/
+    usDstChanNum       = 0;
+
+    NAS_MEM_SET_S(&astDstChan[0], sizeof(astDstChan), 0, sizeof(astDstChan));
+
+    pstScanList = CNAS_XSD_GetScanChanListAddr();
+
+    CNAS_XSD_GetNextScanChanList_SysAcq(CNAS_XSD_GetCurChannelScanIndex(),
+                                        &usDstChanNum,
+                                        astDstChan,
+                                        pstScanList);
+
+    if (0 != usDstChanNum)
+    {
+        /* 数据连接态下搜索1x网络，每两次sync req之间加个缓冲时间 */
+        if (VOS_FALSE == CNAS_XSD_IsAllowedSyncImmediatelyWhenLteDoConn_SysAcq(VOS_FALSE))
+        {
+            /* 保存下一轮将要同步的频点，起延时定时器 */
+            CNAS_XSD_SaveLteOrDoConn1xSysAcqSyncDelayFreq(usDstChanNum, &astDstChan[0]);
+            CNAS_XSD_SetCurrFsmState(CNAS_XSD_SYS_ACQ_STA_WAIT_SYNC_DELAY_TIMER_EXPIRED_WHEN_LTE_OR_DO_CONN);
+            CNAS_XSD_StartTimer(TI_CNAS_XSD_SYS_ACQ_WHEN_LTE_OR_DO_CONN_SYNC_DELAY_TIMER,
+                                CNAS_XSD_GetLteOrDoConn1xSysAcqSyncDelayTimerLen());
+        }
+        else
+        {
+            /* scan list未全部同步完，继续发同步请求 */
+            CNAS_XSD_ContinueSyncScanList_SysAcq(usDstChanNum, astDstChan);
+        }
+
+        return;
+    }
+
+    /*******************************************************************************************
+     * 3. 继续scan list同步完的后续处理流程
+     ******************************************************************************************/
+    /* scan list已全部同步完 */
+    CNAS_XSD_ProcScanListSyncComplete_SysAcq();
+
+    return;
+}
+
+
+VOS_VOID CNAS_XSD_ReportSrvAvailableInd_SysAcq(
+    CNAS_PRL_1X_SYSTEM_STRU                                *pstCurSysInfo
+)
+{
+    XSD_MSCC_SYNC_SERVICE_AVAILABLE_IND_STRU                stSrvAvailableInd;
+    NAS_MSCC_PIF_SERVICE_STATUS_ENUM_UINT32                 enServiceStatus;
+    CNAS_XSD_SERVICE_STATUS_ENUM_UINT32                     enXsdCurSrvStatus;
+    CNAS_CCB_CARD_STATUS_ENUM_UINT8                         enCardStatus;
+
+    /* 当前服务状态就是normal service，则不需要上报服务状态 */
+    if (CNAS_XSD_SERVICE_STATUS_NORMAL_SERVICE == CNAS_XSD_GetCurSrvStatus())
+    {
+        return;
+    }
+
+    enCardStatus = CNAS_CCB_GetCsimCardStatus();
+
+    if ( CNAS_CCB_CARD_STATUS_ABSENT == enCardStatus )
+    {
+        enXsdCurSrvStatus = CNAS_XSD_SERVICE_STATUS_LIMITED_SERVICE;
+        enServiceStatus   = NAS_MSCC_PIF_SERVICE_STATUS_LIMITED_SERVICE;
+    }
+    else
+    {
+        enXsdCurSrvStatus = CNAS_XSD_SERVICE_STATUS_NORMAL_SERVICE;
+        enServiceStatus   = NAS_MSCC_PIF_SERVICE_STATUS_NORMAL_SERVICE;
+    }
+
+    /* 更新当前的服务状态为normal service */
+    CNAS_XSD_SetCurSrvStatus(enXsdCurSrvStatus);
+
+    NAS_MEM_SET_S(&stSrvAvailableInd, sizeof(stSrvAvailableInd), 0, sizeof(XSD_MSCC_SYNC_SERVICE_AVAILABLE_IND_STRU));
+
+    stSrvAvailableInd.usFreq          = pstCurSysInfo->stFreq.usChannel;
+    stSrvAvailableInd.usBandClass     = pstCurSysInfo->stFreq.enBandClass;
+    stSrvAvailableInd.usNid           = pstCurSysInfo->usNid;
+    stSrvAvailableInd.usSid           = pstCurSysInfo->usSid;
+    stSrvAvailableInd.enServiceStatus = enServiceStatus;
+    stSrvAvailableInd.ucRoamingInd    = CNAS_XSD_GetCurrentSystemRoamingInd(pstCurSysInfo);
+
+    CNAS_XSD_SndMsccSyncServiceAvailableInd(&stSrvAvailableInd);
+    return;
+}
+
+
+VOS_UINT32 CNAS_XSD_IsCallRelAnyCampOnFreq_SysAcq(
+    CNAS_CAS_1X_FREQENCY_CHANNEL_STRU                      *pstFreq
+)
+{
+    CNAS_XSD_CALL_REL_ANY_CAMP_ON_FREQ_STRU                *pstCallRelAnyCampOnFreq = VOS_NULL_PTR;
+    VOS_UINT32                                              i;
+
+    pstCallRelAnyCampOnFreq = CNAS_XSD_GetCallRelAnyCampOnFreqListAddr();
+
+    for (i = 0; i < (VOS_UINT32)CNAS_MIN(pstCallRelAnyCampOnFreq->usChanNum, CNAS_XSD_CALL_REL_SYNC_MAX_FREQ_NUM); i++)
+    {
+        if ((pstFreq->usBandClass == pstCallRelAnyCampOnFreq->astFreq[i].enBandClass)
+         && (pstFreq->usChannel   == pstCallRelAnyCampOnFreq->astFreq[i].usChannel))
+        {
+            return VOS_TRUE;
+        }
+    }
+
+    return VOS_FALSE;
+}
+
+
+VOS_UINT16 CNAS_XSD_UpdateSyncSuccChanStatus_SysAcq(
+    VOS_UINT16                                              usBeginScanListIndex,
+    CNAS_PRL_FREQENCY_CHANNEL_STRU                         *pstChannel,
+    CNAS_XSD_SCAN_CHANNEL_LIST_STRU                        *pstScanChanList,
+    CNAS_XSD_GEO_SYS_RECORD_SRCH_LIST_STRU                 *pstGeoSysRecSrchList
+)
+{
+    VOS_UINT16                                              usCurFreqIndex;
+
+    /***********************************************************************************************
+       同步成功的频点处理：
+       i） 如果是GEO同步，如果是OOC场景下的MRU0插入频点，则不刷新；否则需要从scan list当前索引往后
+           刷新该频点；
+
+       ii）如果不是GEO同步，则从scan list当前索引往后查找刷新该频点
+     **********************************************************************************************/
+
+    usCurFreqIndex = usBeginScanListIndex;
+
+    if (VOS_NULL_PTR != pstGeoSysRecSrchList->pstAcqSysInfo)
+    {
+        if (VOS_TRUE == CNAS_XSD_IsMru0FreqInOocScene(pstChannel))
+        {
+            return usCurFreqIndex;
+        }
+    }
+
+    usCurFreqIndex = CNAS_XSD_UpdateChanStatusInScanChanList(usBeginScanListIndex,
+                                                             pstChannel,
+                                                             CNAS_XSD_SCAN_CHAN_STATUS_SYNCED_EXIST,
+                                                             pstScanChanList);
+
+    return usCurFreqIndex;
+}
+
+
+VOS_UINT16 CNAS_XSD_UpdateSyncFailChanStatus_SysAcq(
+    VOS_UINT16                                              usBeginScanListIndex,
+    VOS_UINT16                                              usSyncFailChanNum,
+    CNAS_CAS_1X_SYNC_RSLT_INFO_STRU                        *pstSyncFailChanList,
+    CNAS_XSD_SCAN_CHANNEL_LIST_STRU                        *pstScanChanList,
+    CNAS_XSD_GEO_SYS_RECORD_SRCH_LIST_STRU                 *pstGeoSysRecSrchList
+)
+{
+    VOS_UINT16                                              i;
+    VOS_UINT16                                              usCurFreqIndex;
+    CNAS_PRL_1X_SYSTEM_STRU                                 stMru0SysId;
+    VOS_UINT16                                              ulMru0FreqIndex;
+
+
+    /***********************************************************************************************
+       a. 同步失败的频点处理：
+          i)  如果是GEO同步，如果不是MRU0插入频点，则需要从scan list当前索引往后刷新失败的频点；否
+              则需要从scan list头部到当前索引查找所有MRU0频点刷新为同步不存在，确保状态一致性；
+          ii）如果不是GEO同步，从scan list当前索引往后查找刷新失败的频点；
+     **********************************************************************************************/
+
+    usCurFreqIndex = usBeginScanListIndex;
+
+    /* GEO同步场景 */
+    if (VOS_NULL_PTR != pstGeoSysRecSrchList->pstAcqSysInfo)
+    {
+        ulMru0FreqIndex = CNAS_XSD_INVAILD_SCAN_LIST_FREQ_INDEX;
+
+        /* 如果不是OOC场景，或没有MRU0频点插入场景 */
+        if (VOS_FALSE == CNAS_XSD_IsOocSceneAndRepeatMru0FreqSrchExist(&stMru0SysId))
+        {
+            ulMru0FreqIndex = CNAS_XSD_INVAILD_SCAN_LIST_FREQ_INDEX;
+        }
+        else
+        {
+            /* check同步结果中是否有MRU0频点存在 */
+            for (i = 0; i < usSyncFailChanNum; i++)
+            {
+                if ((stMru0SysId.stFreq.enBandClass == pstSyncFailChanList[i].stFreq.usBandClass)
+                 && (stMru0SysId.stFreq.usChannel   == pstSyncFailChanList[i].stFreq.usChannel))
+                {
+                    ulMru0FreqIndex = i;
+
+                    break;
+                }
+            }
+        }
+
+        if (0xFFFF == ulMru0FreqIndex)
+        {
+            /* 不是OOC场景下的MRU0频点，从scan list当前索引往后查找刷新失败的频点； */
+            usCurFreqIndex = CNAS_XSD_UpdateSyncFailChanStatus(usBeginScanListIndex,
+                                                               usSyncFailChanNum,
+                                                               pstSyncFailChanList,
+                                                               pstScanChanList);
+
+            return usCurFreqIndex;
+        }
+
+        for (i = 0; i < usSyncFailChanNum; i++)
+        {
+            /* 跳过MRU0的频点, 不刷新MRU0频点 */
+            if (i == ulMru0FreqIndex)
+            {
+                continue;
+            }
+
+            usCurFreqIndex =
+                CNAS_XSD_UpdateChanStatusInScanChanList(usBeginScanListIndex,
+                                                        (CNAS_PRL_FREQENCY_CHANNEL_STRU *)&pstSyncFailChanList[i].stFreq,
+                                                        CNAS_XSD_SCAN_CHAN_STATUS_SYNCED_NO_EXIST,
+                                                        pstScanChanList);
+        }
+
+        /* 对于MRU0的频点，需要从scan list头部到当前索引查找所有MRU0频点刷新为同步不存在，确保状态一致性； */
+        CNAS_XSD_UpdateFreqStatusBeforeCurIndexInScanChanList(CNAS_XSD_SCAN_CHAN_STATUS_SYNCED_NO_EXIST,
+                                                              usBeginScanListIndex,
+                                                              &(stMru0SysId.stFreq),
+                                                              pstScanChanList);
+
+        return usCurFreqIndex;
+    }
+
+    /* 这里只刷新同步存在的或未同步的频点频点状态为同步不存在 */
+    for (i = 0; i < usSyncFailChanNum; i++)
+    {
+        usCurFreqIndex =
+            CNAS_XSD_UpdateNoSyncedOrSyncSuccScanChanInScanChanList(CNAS_XSD_SCAN_CHAN_STATUS_SYNCED_NO_EXIST,
+                                                                    usBeginScanListIndex,
+                                                                    (CNAS_PRL_FREQENCY_CHANNEL_STRU *)&(pstSyncFailChanList[i].stFreq),
+                                                                    pstScanChanList);
+
+    }
+
+    return usCurFreqIndex;
+}
+
+
+VOS_VOID CNAS_XSD_UpdateChanStatusUponRcvCasSyncCnfSucc_SysAcq(
+    CAS_CNAS_1X_SYSTEM_SYNC_CNF_STRU   *pstSyncCnf
+)
+{
+    CNAS_XSD_GEO_SYS_RECORD_SRCH_LIST_STRU                 *pstGeoSysRecSrchList = VOS_NULL_PTR;
+    CNAS_XSD_SCAN_CHANNEL_LIST_STRU                        *pstScanList          = VOS_NULL_PTR;
+    VOS_UINT16                                              usCurScanListIndex;
+    CNAS_XSD_SCAN_CHANNEL_LIST_STRU                        *pstEmcScanChanList   = VOS_NULL_PTR;
+
+    pstEmcScanChanList                  = CNAS_XSD_GetEmcCallRedialScanChanListAddr();
+
+    /***********************************************************************************************
+     * 1. 如果是available或Avoid系统同步，则不对scan list做操作；
+     **********************************************************************************************/
+    if (VOS_TRUE == CNAS_XSD_GetAvailSysAcqListFlg_SysAcq())
+    {
+        return;
+    }
+
+    /* Avoid搜索不需要更新ScanChanList */
+    if (VOS_TRUE == CNAS_XSD_GetAvoidSysAcqListFlg_SysAcq())
+    {
+        return;
+    }
+
+    pstScanList          = CNAS_XSD_GetScanChanListAddr();
+
+    pstGeoSysRecSrchList = CNAS_XSD_GetGeoSysRecSrchListAddr_SysAcq();
+
+    /***********************************************************************************************
+     * 2. 同步失败的频点处理
+     **********************************************************************************************/
+    if (0 != pstSyncCnf->ulSyncFailFreqNum)
+    {
+        /* 处理同步失败的频点刷新 */
+        usCurScanListIndex = CNAS_XSD_UpdateSyncFailChanStatus_SysAcq(pstScanList->usCurScanIndex,
+                                                                      (VOS_UINT16)pstSyncCnf->ulSyncFailFreqNum,
+                                                                      &pstSyncCnf->astSyncRsltList[0],
+                                                                      pstScanList,
+                                                                      pstGeoSysRecSrchList);
+
+        /* GEO不存在时，更新当前scan list搜索索引，加快同步成功频点的刷新 */
+        if (VOS_NULL_PTR == pstGeoSysRecSrchList->pstAcqSysInfo)
+        {
+            CNAS_XSD_SetCurChannelScanIndex(usCurScanListIndex + 1);
+        }
+
+        /* 紧急场景的SD搜网，刷新紧急呼的频点列表，避免后续重复搜同步失败的频点 */
+        if (VOS_NULL_PTR != pstEmcScanChanList->pstScanChanInfo)
+        {
+            if (VOS_TRUE == CNAS_XSD_IsEmcSDSysAcq_SysAcq(CNAS_XSD_GetCurSysAcqScene_SysAcq()))
+            {
+                (VOS_VOID)CNAS_XSD_UpdateSyncFailChanStatus(pstEmcScanChanList->usCurScanIndex,
+                                                           (VOS_UINT16)pstSyncCnf->ulSyncFailFreqNum,
+                                                            pstSyncCnf->astSyncRsltList,
+                                                            pstEmcScanChanList);
+            }
+        }
+    }
+
+    /***********************************************************************************************
+     * 3. 同步成功的频点处理
+     **********************************************************************************************/
+    usCurScanListIndex = CNAS_XSD_UpdateSyncSuccChanStatus_SysAcq(pstScanList->usCurScanIndex,
+                                                                  (CNAS_PRL_FREQENCY_CHANNEL_STRU *)&(pstSyncCnf->stFreq),
+                                                                  pstScanList,
+                                                                  pstGeoSysRecSrchList);
+
+    /***********************************************************************************************
+     * 4. 如果不是GEO同步，且同步成功的频点是插入的MRU0频点；则从scan list头部到当前索引（即指向scan
+     *    list中本次同步成功的MRU0的频点索引），查找所有MRU0频点刷新为同步存在，确保状态一致性；
+     **********************************************************************************************/
+    if (VOS_NULL_PTR == pstGeoSysRecSrchList->pstAcqSysInfo)
+    {
+        /* 再次更新下次scan list搜索索引 */
+        CNAS_XSD_SetCurChannelScanIndex(usCurScanListIndex + 1);
+
+
+        /* 由于OOC场景下，会出现插入MRU0频点，为了确保之前搜索该频点与本次搜到的频点状态一致，这里把
+         * 之前的频点也刷成同步成功
+         */
+        if (VOS_TRUE == CNAS_XSD_IsMru0FreqInOocScene((CNAS_PRL_FREQENCY_CHANNEL_STRU *)&(pstSyncCnf->stFreq)))
+        {
+            CNAS_XSD_UpdateFreqStatusBeforeCurIndexInScanChanList(CNAS_XSD_SCAN_CHAN_STATUS_SYNCED_EXIST,
+                                                                  usCurScanListIndex,
+                                                                  (CNAS_PRL_FREQENCY_CHANNEL_STRU *)&(pstSyncCnf->stFreq),
+                                                                  pstScanList);
+        }
+
+        /* log scan list搜索状态 */
+        CNAS_XSD_LogScanChannelList(ID_CNAS_XSD_MNTN_LOG_SCAN_CHAN_LIST_IND, pstScanList);
+
+    }
+}
+
+
+VOS_VOID CNAS_XSD_UpdateChanStatusUponRcvCasSyncCnfFail_SysAcq(
+    CAS_CNAS_1X_SYSTEM_SYNC_CNF_STRU   *pstSyncCnf
+)
+{
+    CNAS_XSD_GEO_SYS_RECORD_SRCH_LIST_STRU                 *pstGeoSysRecSrchList = VOS_NULL_PTR;
+    CNAS_XSD_SCAN_CHANNEL_LIST_STRU                        *pstScanList          = VOS_NULL_PTR;
+    VOS_UINT16                                              usCurScanListIndex;
+
+    VOS_UINT16                                              usUpdateSyncFailFreqNum;
+
+    usUpdateSyncFailFreqNum = (VOS_UINT16)pstSyncCnf->ulSyncFailFreqNum;
+
+    /***********************************************************************************************
+     * 1 如果是available或Avoid系统同步，则不对scan list做操作；否则，
+     **********************************************************************************************/
+    /* available系统同步，跳过 */
+    if (VOS_TRUE == CNAS_XSD_GetAvailSysAcqListFlg_SysAcq())
+    {
+        return;
+    }
+
+    /* Avoid搜索不需要更新ScanChanList */
+    if (VOS_TRUE == CNAS_XSD_GetAvoidSysAcqListFlg_SysAcq())
+    {
+        return;
+    }
+
+    pstScanList          = CNAS_XSD_GetScanChanListAddr();
+
+    pstGeoSysRecSrchList = CNAS_XSD_GetGeoSysRecSrchListAddr_SysAcq();
+
+    usCurScanListIndex   = pstScanList->usCurScanIndex;
+
+    /***********************************************************************************************
+     * 2 如果是GEO同步，如果不是MRU0插入频点，则需要从scan list当前索引往后刷新失败的频点；否则需要从
+     *   scan list头部到当前索引查找所有MRU0频点刷新为同步不存在，确保状态一致性；
+    **********************************************************************************************/
+    if ((CNAS_CCB_VERSION_SRLTE                 == CNAS_CCB_IsVersionSrlte())
+     && (CNAS_CAS_1X_RSLT_NO_RF                 == pstSyncCnf->enSyncRslt)
+     && (0                                      != usUpdateSyncFailFreqNum))
+    {
+        usUpdateSyncFailFreqNum = (VOS_UINT16)pstSyncCnf->ulSyncFailFreqNum - 1;
+        if (0 == usUpdateSyncFailFreqNum)
+        {
+            /* 没有需要刷新的频点，直接返回 */
+            return;
+        }
+    }
+
+    usCurScanListIndex = CNAS_XSD_UpdateSyncFailChanStatus_SysAcq(pstScanList->usCurScanIndex,
+                                                                  usUpdateSyncFailFreqNum,
+                                                                  &pstSyncCnf->astSyncRsltList[0],
+                                                                  pstScanList,
+                                                                  pstGeoSysRecSrchList);
+
+    /***********************************************************************************************
+     * 3 如果不是GEO同步，则需要从scan list当前索引往后刷新失败的频点；
+     **********************************************************************************************/
+    if (VOS_NULL_PTR == pstGeoSysRecSrchList->pstAcqSysInfo)
+    {
+        CNAS_XSD_SetCurChannelScanIndex(usCurScanListIndex + 1);
+
+        /* log scan list搜索状态 */
+        CNAS_XSD_LogScanChannelList(ID_CNAS_XSD_MNTN_LOG_SCAN_CHAN_LIST_IND, pstScanList);
+    }
+}
+
+
+VOS_VOID CNAS_XSD_UpdateChanStatusUponRcvCasDeterminInd_SysAcq(
+    CNAS_PRL_FREQENCY_CHANNEL_STRU                         *pstTempFreq
+)
+{
+    CNAS_XSD_SCAN_CHANNEL_LIST_STRU                        *pstScanList = VOS_NULL_PTR;
+
+    /***********************************************************************************************
+     * 1 如果是available或Avoid系统同步，则不对scan list做操作；否则，
+     **********************************************************************************************/
+    /* available系统同步，跳过 */
+    if (VOS_TRUE == CNAS_XSD_GetAvailSysAcqListFlg_SysAcq())
+    {
+        return;
+    }
+
+    /* Avoid搜索不需要更新ScanChanList */
+    if (VOS_TRUE == CNAS_XSD_GetAvoidSysAcqListFlg_SysAcq())
+    {
+        return;
+    }
+
+    pstScanList = CNAS_XSD_GetScanChanListAddr();
+
+    /***********************************************************************************************
+     * 2 如果当前失败的频点是MRU0的频点，则需要从scan list头部到当前索引查找所有MRU0频点刷新为同步不存
+     *   在；否则从scan list头部到当前索引，查找到失败的频点后，跳出循环；
+     **********************************************************************************************/
+    if (VOS_TRUE == CNAS_XSD_IsMru0FreqInOocScene(pstTempFreq))
+    {
+        CNAS_XSD_UpdateFreqStatusBeforeCurIndexInScanChanList(CNAS_XSD_SCAN_CHAN_STATUS_SYNCED_NO_EXIST,
+                                                              pstScanList->usCurScanIndex,
+                                                              pstTempFreq,
+                                                              pstScanList);
+    }
+    else
+    {
+
+        (VOS_VOID)CNAS_XSD_UpdateChanStatusInScanChanList(0,
+                                                          pstTempFreq,
+                                                          CNAS_XSD_SCAN_CHAN_STATUS_SYNCED_NO_EXIST,
+                                                          pstScanList);
+
+    }
+
+    /* log scan list搜索状态 */
+    CNAS_XSD_LogScanChannelList(ID_CNAS_XSD_MNTN_LOG_SCAN_CHAN_LIST_IND, pstScanList);
+}
+
+
+VOS_VOID CNAS_XSD_UpdateAvailOrNegSystemChanStatusInScanChanList_SysAcq(
+    CNAS_PRL_FREQENCY_CHANNEL_STRU                         *pstFreq,
+    CNAS_XSD_SCAN_CHANNEL_LIST_STRU                        *pstScanChanList
+)
+{
+    CNAS_XSD_SCAN_CHANNEL_LIST_STRU                        *pstScanList = VOS_NULL_PTR;
+
+    pstScanList = CNAS_XSD_GetScanChanListAddr();
+
+    /***********************************************************************************************
+     * i) 如果是OOC场景下的MRU0插入频点，同步到的MRU0频点是negative系统或available系统，则scan list列
+     * 表中所有插入的MRU0都刷新为不存在；否则，
+     * ii) 从scan list当前开始查找，刷新该频点为搜索不存在
+     **********************************************************************************************/
+    if (VOS_TRUE == CNAS_XSD_IsMru0FreqInOocScene(pstFreq))
+    {
+        CNAS_XSD_UpdateFreqStatusBeforeCurIndexInScanChanList(CNAS_XSD_SCAN_CHAN_STATUS_SYNCED_NO_EXIST,
+                                                              pstScanChanList->usTotalNum,
+                                                              pstFreq,
+                                                              pstScanChanList);
+    }
+    else
+    {
+        (VOS_VOID)CNAS_XSD_UpdateChanStatusInScanChanList(0,
+                                                          pstFreq,
+                                                          CNAS_XSD_SCAN_CHAN_STATUS_SYNCED_NO_EXIST,
+                                                          pstScanList);
+    }
+}
+
+VOS_UINT32 CNAS_XSD_IsAllowedPerformAbortProcedure_SysAcq(
+    CNAS_XSD_SYS_ACQ_SCENE_ENUM_UINT32  enCurAcqScene,
+    VOS_UINT32                         *pulIsCallAbort
+)
+{
+    VOS_UINT32                          ulHrpdConnExistFlag;
+    VOS_UINT32                          ulLteConnExistFlag;
+    CNAS_XSD_SCAN_CHANNEL_INFO_STRU    *pstScanChanInfo;
+
+    ulLteConnExistFlag      = CNAS_XSD_GetLteConnExistFlag();
+    ulHrpdConnExistFlag     = CNAS_XSD_GetHrpdConnExistFlag();
+    *pulIsCallAbort         = VOS_FALSE;
+    pstScanChanInfo         = CNAS_XSD_GetEmcCallRedialScanChanListAddr()->pstScanChanInfo;
+
+    /* 排除当前不需要打断的场景 */
+    if ((CNAS_XSD_SYS_ACQ_SCENE_SERVICE_ACQ         == enCurAcqScene)
+      ||(CNAS_XSD_SYS_ACQ_SCENE_NORMAL_CALL_REDIAL  == enCurAcqScene)
+      ||(CNAS_XSD_SYS_ACQ_SCENE_EMERGENCY_CALL      == enCurAcqScene))
+    {
+        return VOS_FALSE;
+    }
+
+    /***********************************************************************************************
+     *  当前搜索失败，满足下面任一条件，退出当前搜网
+        a)呼叫重播搜网列表不为空，搜索场景是LTE\HRPD连接态下的1X搜网
+        b)LTE\HRPD从idle态到连接态，
+     **********************************************************************************************/
+    if (CNAS_XSD_SYS_ACQ_SCENE_SYSTEM_LOST_WITH_LTE_OR_DO_CONN == enCurAcqScene)
+    {
+        if ((VOS_NULL_PTR != CNAS_XSD_GetCallRedialScanChanListAddr()->pstScanChanInfo)
+         || (VOS_NULL_PTR != pstScanChanInfo))
+        {
+            *pulIsCallAbort = VOS_TRUE;
+            return VOS_TRUE;
+        }
+    }
+    else
+    {
+        if ((VOS_TRUE                == ulHrpdConnExistFlag)
+         || ((CNAS_CCB_VERSION_SRLTE == CNAS_CCB_IsVersionSrlte())
+          && (VOS_TRUE               == ulLteConnExistFlag)))
+        {
+            return VOS_TRUE;
+        }
+    }
+    return VOS_FALSE;
+}
+
+
+VOS_VOID CNAS_XSD_PerformAbortCurrSysAcqScene_SysAcq(
+    VOS_UINT32                          ulIsCallAbort
+)
+{
+    if ((VOS_TRUE == ulIsCallAbort)
+     && (0        != CNAS_XSD_GetCacheMsgNum()))
+    {
+        CNAS_XSD_PerformAbortProcedure_SysAcq();
+    }
+    else
+    {
+        CNAS_XSD_StopTimer(TI_CNAS_XSD_POWEROFF_CAMP_ON_PROTECT_TIMER);
+
+        /* 将层二运行结果通知层一，层一收到此消息后进行层一状态的迁移 */
+        CNAS_XSD_SndSysAcqRslt(CNAS_XSD_SYSTEM_ACQUIRED_RESULT_FAILURE,
+                               CNAS_XSD_GetCurSysAcqScene_SysAcq(),
+                               CNAS_XSD_IsImmediateSysAcq_SysAcq(),
+                               CNAS_XSD_GetOocTotalTimerExpiredFlg_SysAcq());
+
+        /* 退出层二状态机 */
+        CNAS_XSD_QuitFsmSysAcq_SysAcq();
+    }
+    return;
+}
+
+
+VOS_UINT32 CNAS_XSD_RcvTiLteOrDoConnSyncDelayTimerExpired_SysAcq_WaitSyncDelayTimerExpired(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    CNAS_XSD_1X_SYS_ACQ_SYNC_DELAY_INFO_WHEN_LTE_OR_DO_CONN_STRU   *pstSyncDelayInfoAddr;
+    CNAS_XSD_SCAN_CHANNEL_INFO_STRU                                *pstEmcScanChanInfo;
+    CNAS_PRL_FREQENCY_CHANNEL_STRU                                  astDstChan[CNAS_CAS_1X_MAX_FREQ_NUM];
+    VOS_UINT16                                                      usDstChanNum;
+
+    NAS_MEM_SET_S(&astDstChan[0], sizeof(astDstChan), 0, sizeof(astDstChan));
+    usDstChanNum         = 0;
+    pstEmcScanChanInfo   = CNAS_XSD_GetEmcCallRedialScanChanListAddr()->pstScanChanInfo;
+    pstSyncDelayInfoAddr = CNAS_XSD_GetLteOrDoConn1xSysAcqSyncDelayInfoAddr();
+
+    /*********************************************************************************************
+     *如果当前是geo同步，xsd已经上报了normal service，之前如果有呼叫搜网的话不会有重播搜网请求下发，
+     *所以当延迟同步定时器超时的时候，判断一下重播搜网列表为空:
+     1、如果当前是GEO同步，最大同步频点32个
+    **********************************************************************************************/
+    if ((VOS_NULL_PTR != CNAS_XSD_GetCallRedialScanChanListAddr()->pstScanChanInfo)
+     || (VOS_NULL_PTR != pstEmcScanChanInfo))
+    {
+        if (VOS_NULL_PTR != CNAS_XSD_GetGeoSysRecSrchListAddr_SysAcq()->pstAcqSysInfo)
+        {
+            CNAS_WARNING_LOG(UEPS_PID_XSD, "CNAS_XSD_RcvTiLteOrDoConnSyncDelayTimerExpired_SysAcq_WaitSyncDelayTimerExpired:xsd has report normal service");
+
+            CNAS_XSD_GetNextSysSyncListFromGeoSysRecordSrchList(CNAS_XSD_GetGeoSysRecSrchListAddr_SysAcq(),
+                                                                &usDstChanNum,
+                                                                &astDstChan[0]);
+
+            CNAS_XSD_ContinueSyncScanList_SysAcq(usDstChanNum, &astDstChan[0]);
+            return VOS_TRUE;
+        }
+    }
+
+    CNAS_XSD_ContinueSyncScanList_SysAcq(pstSyncDelayInfoAddr->us1xSysAcqSyncDelayFreqNum,
+                                         pstSyncDelayInfoAddr->austSysAcqSyncDelayFreqInfo);
+    return VOS_TRUE;
+}
+
+
+VOS_UINT32 CNAS_XSD_RcvMsccLteHrpdConnInfoInd_SysAcq_WaitSyncDelayTimerExpired(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    /* 停止延时同步定时器 */
+    CNAS_XSD_StopTimer(TI_CNAS_XSD_SYS_ACQ_WHEN_LTE_OR_DO_CONN_SYNC_DELAY_TIMER);
+
+    CNAS_XSD_ContinueSysSync_SysAcq();
+    return VOS_TRUE;
+}
+
+
+
+VOS_UINT32 CNAS_XSD_RcvMsccPowerOffReq_SysAcq_WaitSyncDelayTimerExpired(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    /* 停止延时同步定时器 */
+    CNAS_XSD_StopTimer(TI_CNAS_XSD_SYS_ACQ_WHEN_LTE_OR_DO_CONN_SYNC_DELAY_TIMER);
+
+    /* 清除低优先级打断和之前打断的缓存消息 */
+    if (VOS_TRUE == CNAS_XSD_ClearCacheMsgByMsgName(UEPS_PID_MSCC, ID_MSCC_XSD_SRV_ACQ_REQ))
+    {
+        CNAS_XSD_SndMsccSrvAcqCnf(NAS_MSCC_PIF_SRV_ACQ_RESULT_FAIL);
+
+        CNAS_XSD_SetSrvAcqFlg(VOS_FALSE);
+    }
+
+    /* 清空缓存 */
+    CNAS_XSD_InitCacheMsgQueue(CNAS_XSD_INIT_CTX_POWEROFF, &(CNAS_XSD_GetXsdCtxAddr()->stCacheMsgQueue));
+
+    /* 缓存关机请求 */
+    CNAS_XSD_SaveCacheMsg(ulEventType, pstMsg);
+
+    CNAS_XSD_SetSystemAcquiredAbortedCause(NAS_ERR_LOG_1X_SEARCH_RSLT_ABORTED_BY_POWER_OFF);
+
+    CNAS_XSD_PerformAbortProcedure_SysAcq();
+
+    return VOS_TRUE;
+}
+
+VOS_UINT32 CNAS_XSD_RcvMsccCallRedialSystemAcquireNtf_SysAcq_WaitSyncDelayTimerExpired(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    CNAS_PRL_FREQENCY_CHANNEL_STRU      astDstChan[CNAS_CAS_1X_MAX_FREQ_NUM];
+    VOS_UINT16                          usDstChanNum;
+
+    usDstChanNum = 0;
+    NAS_MEM_SET_S(&astDstChan[0], sizeof(astDstChan), 0, sizeof(astDstChan));
+
+    /* 停止延时同步定时器 */
+    CNAS_XSD_StopTimer(TI_CNAS_XSD_SYS_ACQ_WHEN_LTE_OR_DO_CONN_SYNC_DELAY_TIMER);
+
+    /* 如果当前是连接态的GEO同步，不打断 */
+    if (VOS_NULL_PTR != CNAS_XSD_GetGeoSysRecSrchListAddr_SysAcq()->pstAcqSysInfo)
+    {
+        CNAS_WARNING_LOG(UEPS_PID_XSD, "CNAS_XSD_RcvMsccCallRedialSystemAcquireNtf_SysAcq_WaitSyncDelayTimerExpired:conflict situation");
+
+        CNAS_XSD_GetNextSysSyncListFromGeoSysRecordSrchList(CNAS_XSD_GetGeoSysRecSrchListAddr_SysAcq(),
+                                                            &usDstChanNum,
+                                                            &astDstChan[0]);
+
+        CNAS_XSD_ContinueSyncScanList_SysAcq(usDstChanNum, &astDstChan[0]);
+        return VOS_TRUE;
+    }
+
+    /* 缓存呼叫重拨指示消息 */
+    CNAS_XSD_SaveCacheMsg(ulEventType, pstMsg);
+
+    CNAS_XSD_SetSystemAcquiredAbortedCause(NAS_ERR_LOG_1X_SEARCH_RSLT_ABORTED_BY_CALL_REDIAL);
+
+    CNAS_XSD_PerformAbortProcedure_SysAcq();
+
+    return VOS_TRUE;
+}
+
+VOS_UINT32 CNAS_XSD_RcvTiOosSysAcqCurPhaseTotalTimerExpired_SysAcq_WaitSyncDelayTimerExpired(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    /* 设置超时标记 */
+    CNAS_XSD_SetOocTotalTimerExpiredFlg_SysAcq(VOS_TRUE);
+
+    return VOS_TRUE;
+}
+
+VOS_UINT32 CNAS_XSD_RcvMsccPowerSaveReq_SysAcq_WaitSyncDelayTimerExpired(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    CNAS_XSD_StopTimer(TI_CNAS_XSD_SYS_ACQ_WHEN_LTE_OR_DO_CONN_SYNC_DELAY_TIMER);
+
+    /* 清除低优先级打断和之前打断的缓存消息 */
+    if (VOS_TRUE == CNAS_XSD_ClearCacheMsgByMsgName(UEPS_PID_MSCC, ID_MSCC_XSD_SRV_ACQ_REQ))
+    {
+        CNAS_XSD_SndMsccSrvAcqCnf(NAS_MSCC_PIF_SRV_ACQ_RESULT_FAIL);
+
+        CNAS_XSD_SetSrvAcqFlg(VOS_FALSE);
+    }
+
+    /* 清空缓存 */
+    CNAS_XSD_InitCacheMsgQueue(CNAS_XSD_INIT_CTX_POWEROFF, &(CNAS_XSD_GetXsdCtxAddr()->stCacheMsgQueue));
+
+    /* 缓存POWER SAVE请求 */
+    CNAS_XSD_SaveCacheMsg(ulEventType, pstMsg);
+
+    CNAS_XSD_SetSystemAcquiredAbortedCause(NAS_ERR_LOG_1X_SEARCH_RSLT_ABORTED_BY_POWER_SAVE);
+
+    CNAS_XSD_PerformAbortProcedure_SysAcq();
+
+    return VOS_TRUE;
+}
+
+VOS_UINT32 CNAS_XSD_RcvMsccSrvAcqReq_SysAcq_WaitSyncDelayTimerExpired(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    CNAS_PRL_FREQENCY_CHANNEL_STRU      astDstChan[CNAS_CAS_1X_MAX_FREQ_NUM];
+    VOS_UINT16                          usDstChanNum;
+
+    usDstChanNum = 0;
+    NAS_MEM_SET_S(&astDstChan[0], sizeof(astDstChan), 0, sizeof(astDstChan));
+
+    /* 停止延时同步定时器 */
+    CNAS_XSD_StopTimer(TI_CNAS_XSD_SYS_ACQ_WHEN_LTE_OR_DO_CONN_SYNC_DELAY_TIMER);
+
+    /* 如果当前是连接态的GEO同步，不打断 */
+    if (VOS_NULL_PTR != CNAS_XSD_GetGeoSysRecSrchListAddr_SysAcq()->pstAcqSysInfo)
+    {
+        CNAS_WARNING_LOG(UEPS_PID_XSD, "CNAS_XSD_RcvMsccSrvAcqReq_SysAcq_WaitSyncDelayTimerExpired:conflict situation");
+        CNAS_XSD_SetSrvAcqFlg(VOS_TRUE);
+
+        CNAS_XSD_GetNextSysSyncListFromGeoSysRecordSrchList(CNAS_XSD_GetGeoSysRecSrchListAddr_SysAcq(),
+                                                            &usDstChanNum,
+                                                            &astDstChan[0]);
+
+        CNAS_XSD_ContinueSyncScanList_SysAcq(usDstChanNum, &astDstChan[0]);
+        return VOS_TRUE;
+    }
+
+     /* 缓存svc acq消息 */
+    CNAS_XSD_SaveCacheMsg(ulEventType, pstMsg);
+
+    CNAS_XSD_SetSystemAcquiredAbortedCause(NAS_ERR_LOG_1X_SEARCH_RSLT_ABORTED_BY_SRV_ACQ);
+
+    CNAS_XSD_PerformAbortProcedure_SysAcq();
+
+    return VOS_TRUE;
+}
+
+
+VOS_UINT32 CNAS_XSD_RcvTiPowerOffCampOnProtectTimerExpired_SysAcq_WaitSyncDelayTimerExpired(
+    VOS_UINT32                          ulEventType,
+    struct MsgCB                       *pstMsg
+)
+{
+    /* 停止延时同步定时器 */
+    CNAS_XSD_StopTimer(TI_CNAS_XSD_SYS_ACQ_WHEN_LTE_OR_DO_CONN_SYNC_DELAY_TIMER);
+
+    CNAS_XSD_SetSystemAcquiredAbortedCause(NAS_ERR_LOG_1X_SEARCH_RSLT_ABORTED_BY_POWER_OFF);
+
+    CNAS_XSD_PerformAbortProcedure_SysAcq();
+
+    return VOS_TRUE;
+}
+
+
+VOS_UINT32 CNAS_XSD_IsAllowedSyncImmediatelyWhenLteDoConn_SysAcq(
+    VOS_UINT32                          ulIsGeoSync
+)
+{
+    VOS_UINT32                          ulHrpdConnExistFlag;
+    VOS_UINT32                          ulLteConnExistFlag;
+    CNAS_XSD_SCAN_CHANNEL_INFO_STRU    *pstEmcScanChanInfo;
+    CNAS_XSD_SYS_ACQ_SCENE_ENUM_UINT32  enCurAcqScene;
+
+    enCurAcqScene           = CNAS_XSD_GetCurSysAcqScene_SysAcq();
+    ulLteConnExistFlag      = CNAS_XSD_GetLteConnExistFlag();
+    ulHrpdConnExistFlag     = CNAS_XSD_GetHrpdConnExistFlag();
+    pstEmcScanChanInfo      = CNAS_XSD_GetEmcCallRedialScanChanListAddr()->pstScanChanInfo;
+
+    /* 控制数据连接态1x同步搜网延迟下发的标志DISABLE */
+    if (VOS_FALSE == CNAS_XSD_GetLteOrDoConn1xSysAcqSyncDelayFlag())
+    {
+        return VOS_TRUE;
+    }
+
+    /* 当前是数据连接态 */
+    if((VOS_TRUE                == ulHrpdConnExistFlag)
+    || ((CNAS_CCB_VERSION_SRLTE == CNAS_CCB_IsVersionSrlte())
+     && (VOS_TRUE               == ulLteConnExistFlag)))
+    {
+        /* 当前是GEO同步，且之前没有呼叫重播搜网请求,延迟下发同步请求 */
+        if (VOS_TRUE == ulIsGeoSync)
+        {
+            if ((VOS_NULL_PTR != CNAS_XSD_GetCallRedialScanChanListAddr()->pstScanChanInfo)
+             || (VOS_NULL_PTR != pstEmcScanChanInfo))
+            {
+                return VOS_TRUE;
+            }
+            else
+            {
+                return VOS_FALSE;
+            }
+        }
+
+        /* 搜网场景是CNAS_XSD_SYS_ACQ_SCENE_SYSTEM_LOST_WITH_LTE_OR_DO_CONN，延迟下发同步请求 */
+        if (CNAS_XSD_SYS_ACQ_SCENE_SYSTEM_LOST_WITH_LTE_OR_DO_CONN == enCurAcqScene)
+        {
+            return VOS_FALSE;
+        }
+    }
+
+    return VOS_TRUE;
+}
+
+
+/*lint -restore*/
+
+#endif
+
+#ifdef __cplusplus
+#if __cplusplus
+}
+#endif /* __cpluscplus */
+#endif /* __cpluscplus */
+
+
+
