@@ -48,7 +48,7 @@ EXPORT_SYMBOL(get_cunrrent_total_ptn_num);
 int flash_find_ptn(const char* str, char* pblkname)
 {
 	unsigned int n;
-	char device_path[] = "/dev/block/bootdevice/by-name/";
+	char device_path[] = "/dev/block/platform/hi_mci.0/by-name/";
 	int current_ptn_num = 0;
 	struct partition *current_partition_table = NULL;
 	enum bootdevice_type boot_device_type = BOOT_DEVICE_EMMC;

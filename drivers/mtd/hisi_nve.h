@@ -22,7 +22,7 @@
 
 #define NVE_HEADER_NAME "Hisi-NV-Partition" /* ReliableData area */
 /* #define NV_DEVICE_NAME          "/dev/block/mmcblk0p7" */
-#define NV_DEVICE_NAME "/dev/block/bootdevice/by-name/nvme"
+#define NV_DEVICE_NAME "/dev/block/platform/hi_mci.0/by-name/nvme"
 
 #define NV_INFO_LEN 1024
 /*
