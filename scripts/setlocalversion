@@ -10,7 +10,7 @@
 #
 
 usage() {
-	echo "Usage: $0 [--save-scmversion] [srctree] [--obb_llt_mdrv]" >&2
+	echo "Usage: $0 [--save-scmversion] [srctree]" >&2
 	exit 1
 }
 
@@ -23,10 +23,6 @@ fi
 if test $# -gt 0; then
 	srctree=$1
 	shift
-fi
-if test "$1" = "--obb_llt_mdrv"; then
-        no_scmversion=y
-        shift
 fi
 if test $# -gt 0 -o ! -d "$srctree"; then
 	usage
@@ -163,22 +159,18 @@ fi
 res="${res}${CONFIG_LOCALVERSION}${LOCALVERSION}"
 
 # scm version string if not at a tagged commit
-if [ $no_scmversion != "y" ]; then
-	if test "$CONFIG_LOCALVERSION_AUTO" = "y"; then
-		# full scm version string
-		res="$res$(scm_version)"
-	else
-		# append a plus sign if the repository is not in a clean
-		# annotated or signed tagged state (as git describe only
-		# looks at signed or annotated tags - git tag -a/-s) and
-		# LOCALVERSION= is not specified
-		if test "${LOCALVERSION+set}" != "set"; then
-			scm=$(scm_version --short)
-			res="$res${scm:++}"
-		fi
-	fi
+if test "$CONFIG_LOCALVERSION_AUTO" = "y"; then
+	# full scm version string
+	res="$res$(scm_version)"
 else
-	echo "this is llt mdrv version" >&2
+	# append a plus sign if the repository is not in a clean
+	# annotated or signed tagged state (as git describe only
+	# looks at signed or annotated tags - git tag -a/-s) and
+	# LOCALVERSION= is not specified
+	if test "${LOCALVERSION+set}" != "set"; then
+		scm=$(scm_version --short)
+		res="$res${scm:++}"
+	fi
 fi
 
 echo "$res"
