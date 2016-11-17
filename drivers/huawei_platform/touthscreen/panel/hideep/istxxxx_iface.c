@@ -563,7 +563,7 @@ int hideep_iface_init(struct ist510e *ts)
 	}
 	init_waitqueue_head(&debug_drv->i_packet);
 	debug_drv->ts = ts;
-	debug_drv->im_r_en = 0;	/* disable*/
+	debug_drv->im_r_en = 1;	/* disable*/
 	debug_drv->im_size = 4096;
 	debug_drv->vr_size = IST_VR_SIZE_LENGTH;
 	debug_drv->im_buff = kmalloc(debug_drv->im_size, GFP_KERNEL);
